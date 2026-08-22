@@ -30,6 +30,12 @@ public class PlayerWeapon : NetworkBehaviour
         if (Physics.Raycast(muzzlePosition, fireDirection, out RaycastHit hit, weaponRange))
         {
             Debug.Log($"Hit: {hit.collider.gameObject.name}");
+
+            ZombieAI zombie = hit.collider.GetComponentInParent<ZombieAI>();
+            if (zombie != null)
+            {
+                zombie.TakeDamage(25);
+            }
         }
     }
 }
