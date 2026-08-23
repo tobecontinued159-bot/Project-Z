@@ -31,7 +31,7 @@ public class ZombieAI : NetworkBehaviour
         }
     }
 
-    public void TakeDamage(int damage)
+    public void TakeDamage(int damage, PlayerStats attacker)
     {
         if (HasStateAuthority == false)
         {
@@ -43,6 +43,11 @@ public class ZombieAI : NetworkBehaviour
 
         if (Health <= 0)
         {
+            if (attacker != null)
+            {
+                attacker.RPC_AddPoints(10);
+            }
+
             Runner.Despawn(Object);
         }
     }

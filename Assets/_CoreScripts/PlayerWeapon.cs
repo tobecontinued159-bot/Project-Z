@@ -34,7 +34,7 @@ public class PlayerWeapon : NetworkBehaviour
             ZombieAI zombie = hit.collider.GetComponentInParent<ZombieAI>();
             if (zombie != null)
             {
-                zombie.TakeDamage(25);
+                zombie.TakeDamage(25, GetComponent<PlayerStats>());
             }
         }
     }

@@ -106,7 +106,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
-        NetworkObject networkPlayer = runner.Spawn(playerPrefab, new Vector3(0f, 2f, 0f), Quaternion.identity, player);
+        NetworkObject networkPlayer = runner.Spawn(playerPrefab, new Vector3(0f, 1f, 0f), Quaternion.identity, player);
         if (networkPlayer == null)
         {
             Debug.LogError("NetworkPlayerSpawner: runner.Spawn returned null. Check that PlayerPrefab is a NetworkObject and has been baked.");
