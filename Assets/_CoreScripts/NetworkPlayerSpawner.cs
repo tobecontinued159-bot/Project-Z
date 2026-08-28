@@ -10,13 +10,23 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
     [SerializeField] private NetworkObject playerPrefab;
     [SerializeField] private string sessionName = "TestRoom";
 
+    public static NetworkPlayerSpawner Instance { get; private set; }
+    public static readonly List<NetworkObject> AllPlayers = new List<NetworkObject>();
+
     private readonly List<NetworkObject> _spawnedPlayers = new List<NetworkObject>();
     private NetworkRunner _runner;
     private bool _hasSpawnedLocalPlayer;
 
+    private Camera _cachedMainCamera;
+
     public void SetPlayerPrefab(NetworkObject prefab)
     {
         playerPrefab = prefab;
+    }
+
+    private void Awake()
+    {
+        Instance = this;
     }
 
     private async void Start()
@@ -79,6 +89,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
     private void OnDestroy()
     {
+        Instance = null;
         if (_runner != null)
         {
             _runner.RemoveCallbacks(this);
@@ -115,6 +126,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
         _hasSpawnedLocalPlayer = true;
         _spawnedPlayers.Add(networkPlayer);
+        AllPlayers.Add(networkPlayer);
         Debug.Log($"Spawned local player for {player}");
     }
 
@@ -126,6 +138,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
             if (networkObject == null)
             {
                 _spawnedPlayers.RemoveAt(i);
+                AllPlayers.Remove(networkObject);
                 continue;
             }
 
@@ -140,11 +153,51 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
             }
 
             _spawnedPlayers.RemoveAt(i);
+            AllPlayers.Remove(networkObject);
         }
     }
 
     public void OnInput(NetworkRunner runner, NetworkInput input)
     {
+        if (_cachedMainCamera == null)
+        {
+            _cachedMainCamera = Camera.main;
+        }
+
+        PlayerInput data = new PlayerInput();
+
+        float horizontal = Input.GetAxisRaw("Horizontal");
+        float vertical = Input.GetAxisRaw("Vertical");
+        data.MoveInput = new Vector2(horizontal, vertical);
+
+        if (_cachedMainCamera != null)
+        {
+            Ray ray = _cachedMainCamera.ScreenPointToRay(Input.mousePosition);
+            Vector3 lookPoint;
+
+            if (Physics.Raycast(ray, out RaycastHit hit, 500f))
+            {
+                lookPoint = hit.point;
+            }
+            else
+            {
+                Plane groundPlane = new Plane(Vector3.up, Vector3.zero);
+                if (groundPlane.Raycast(ray, out float enterDistance))
+                {
+                    lookPoint = ray.GetPoint(enterDistance);
+                }
+                else
+                {
+                    lookPoint = Vector3.zero;
+                }
+            }
+
+            data.LookDirection = lookPoint;
+        }
+
+        data.FirePressed = Input.GetButtonDown("Fire1");
+
+        input.Set(data);
     }
 
     public void OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input)
@@ -154,6 +207,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
     public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason)
     {
         _spawnedPlayers.Clear();
+        AllPlayers.Clear();
         _hasSpawnedLocalPlayer = false;
         Debug.Log($"Fusion shutdown: {shutdownReason}");
     }

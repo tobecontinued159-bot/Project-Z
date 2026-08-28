@@ -5,37 +5,48 @@ public class PlayerWeapon : NetworkBehaviour
 {
     [SerializeField] private float weaponRange = 50f;
     [SerializeField] private float muzzleHeight = 0.5f;
+    [SerializeField] private int damage = 25;
 
-    private void Update()
+    private PlayerStats _cachedPlayerStats;
+
+    public override void Spawned()
     {
-        if (HasStateAuthority == false)
+        _cachedPlayerStats = GetComponent<PlayerStats>();
+    }
+
+    public override void FixedUpdateNetwork()
+    {
+        if (GetInput(out PlayerInput input) == false)
         {
             return;
         }
 
-        if (Input.GetButtonDown("Fire1"))
+        if (input.FirePressed)
         {
-            RPC_Fire();
+            ProcessFire();
         }
     }
 
-    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    private void RPC_Fire()
+    private void ProcessFire()
     {
         Vector3 muzzlePosition = transform.position + Vector3.up * muzzleHeight;
         Vector3 fireDirection = transform.forward;
 
-        Debug.DrawRay(muzzlePosition, fireDirection * weaponRange, Color.red, 1f);
+        RPC_RenderShotEffect(muzzlePosition, fireDirection);
 
         if (Physics.Raycast(muzzlePosition, fireDirection, out RaycastHit hit, weaponRange))
         {
-            Debug.Log($"Hit: {hit.collider.gameObject.name}");
-
             ZombieAI zombie = hit.collider.GetComponentInParent<ZombieAI>();
             if (zombie != null)
             {
-                zombie.TakeDamage(25, GetComponent<PlayerStats>());
+                zombie.RPC_RequestDamage(damage, _cachedPlayerStats);
             }
         }
+    }
+
+    [Rpc(RpcSources.InputAuthority, RpcTargets.All)]
+    private void RPC_RenderShotEffect(Vector3 muzzlePosition, Vector3 fireDirection)
+    {
+        Debug.DrawRay(muzzlePosition, fireDirection * weaponRange, Color.red, 0.2f);
     }
 }

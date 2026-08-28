@@ -2,36 +2,85 @@ using System.Collections.Generic;
 using Fusion;
 using UnityEngine;
 
-public class ZombieSpawner : NetworkBehaviour
+public class ZombieSpawner : MonoBehaviour
 {
     [SerializeField] private NetworkObject zombiePrefab;
     [SerializeField] private List<Transform> spawnPoints = new List<Transform>();
     [SerializeField] private float spawnInterval = 3f;
+    [SerializeField] private int maxZombies = 30;
 
-    [Networked] private TickTimer SpawnTimer { get; set; }
+    private NetworkRunner _runner;
+    private float _nextSpawnCheckTime;
+    private readonly List<Transform> _cachedValidSpawnPoints = new List<Transform>();
 
-    public override void Spawned()
+    private void Update()
     {
-        if (HasStateAuthority)
+        if (_runner == null)
         {
-            SpawnTimer = TickTimer.CreateFromSeconds(Runner, spawnInterval);
+            if (NetworkPlayerSpawner.Instance != null)
+            {
+                _runner = NetworkPlayerSpawner.Instance.GetComponent<NetworkRunner>();
+            }
+            return;
         }
-    }
 
-    public override void FixedUpdateNetwork()
-    {
-        if (HasStateAuthority == false)
+        if (_runner.IsRunning == false)
         {
             return;
         }
 
-        if (SpawnTimer.Expired(Runner) == false)
+        if (IsSpawnMaster() == false)
+        {
+            return;
+        }
+
+        if (Time.time < _nextSpawnCheckTime)
+        {
+            return;
+        }
+
+        _nextSpawnCheckTime = Time.time + spawnInterval;
+        TrySpawnZombie();
+    }
+
+    private bool IsSpawnMaster()
+    {
+        if (_runner.ActivePlayers == null)
+        {
+            return false;
+        }
+
+        int playerCount = 0;
+        PlayerRef minPlayer = PlayerRef.None;
+
+        foreach (PlayerRef player in _runner.ActivePlayers)
+        {
+            playerCount++;
+            if (minPlayer.IsRealPlayer == false || player.PlayerId < minPlayer.PlayerId)
+            {
+                minPlayer = player;
+            }
+        }
+
+        if (playerCount == 0)
+        {
+            return false;
+        }
+
+        return minPlayer == _runner.LocalPlayer;
+    }
+
+    private void TrySpawnZombie()
+    {
+        ZombieAI[] allZombies = Object.FindObjectsOfType<ZombieAI>();
+        int currentZombieCount = allZombies != null ? allZombies.Length : 0;
+
+        if (currentZombieCount >= maxZombies)
         {
             return;
         }
 
         SpawnZombie();
-        SpawnTimer = TickTimer.CreateFromSeconds(Runner, spawnInterval);
     }
 
     private void SpawnZombie()
@@ -46,7 +95,7 @@ public class ZombieSpawner : NetworkBehaviour
         Vector3 position = spawnPoint != null ? spawnPoint.position : transform.position;
         Quaternion rotation = spawnPoint != null ? spawnPoint.rotation : transform.rotation;
 
-        NetworkObject zombie = Runner.Spawn(zombiePrefab, position, rotation);
+        NetworkObject zombie = _runner.Spawn(zombiePrefab, position, rotation);
         if (zombie == null)
         {
             Debug.LogError("ZombieSpawner: Runner.Spawn returned null. Bake the zombie prefab as a NetworkObject.");
@@ -55,26 +104,21 @@ public class ZombieSpawner : NetworkBehaviour
 
     private Transform GetRandomSpawnPoint()
     {
-        if (spawnPoints == null || spawnPoints.Count == 0)
-        {
-            return null;
-        }
-
-        List<Transform> validPoints = new List<Transform>();
+        _cachedValidSpawnPoints.Clear();
         for (int i = 0; i < spawnPoints.Count; i++)
         {
             if (spawnPoints[i] != null)
             {
-                validPoints.Add(spawnPoints[i]);
+                _cachedValidSpawnPoints.Add(spawnPoints[i]);
             }
         }
 
-        if (validPoints.Count == 0)
+        if (_cachedValidSpawnPoints.Count == 0)
         {
             return null;
         }
 
-        int index = Random.Range(0, validPoints.Count);
-        return validPoints[index];
+        int index = Random.Range(0, _cachedValidSpawnPoints.Count);
+        return _cachedValidSpawnPoints[index];
     }
 }

@@ -1,27 +1,25 @@
 using Fusion;
 using UnityEngine;
 
+[RequireComponent(typeof(NetworkTransform))]
 public class PlayerController : NetworkBehaviour
 {
     [SerializeField] private float moveSpeed = 5f;
 
     public override void FixedUpdateNetwork()
     {
-        if (HasStateAuthority == false)
+        if (GetInput(out PlayerInput input) == false)
         {
             return;
         }
 
-        MovePlayer();
-        FaceMouseCursor();
+        MovePlayer(input.MoveInput);
+        FaceLookPoint(input.LookDirection);
     }
 
-    private void MovePlayer()
+    private void MovePlayer(Vector2 moveInput)
     {
-        float horizontal = Input.GetAxisRaw("Horizontal");
-        float vertical = Input.GetAxisRaw("Vertical");
-
-        Vector3 moveDirection = new Vector3(horizontal, 0f, vertical);
+        Vector3 moveDirection = new Vector3(moveInput.x, 0f, moveInput.y);
 
         if (moveDirection.sqrMagnitude > 1f)
         {
@@ -31,39 +29,14 @@ public class PlayerController : NetworkBehaviour
         transform.position += moveDirection * moveSpeed * Runner.DeltaTime;
     }
 
-    private void FaceMouseCursor()
+    private void FaceLookPoint(Vector3 lookPoint)
     {
-        Camera gameplayCamera = Camera.main;
-        if (gameplayCamera == null)
+        if ((lookPoint - transform.position).sqrMagnitude < 0.001f)
         {
             return;
-        }
-
-        Ray ray = gameplayCamera.ScreenPointToRay(Input.mousePosition);
-        Vector3 lookPoint;
-
-        if (Physics.Raycast(ray, out RaycastHit hit, 500f))
-        {
-            lookPoint = hit.point;
-        }
-        else
-        {
-            Plane groundPlane = new Plane(Vector3.up, new Vector3(0f, transform.position.y, 0f));
-            if (groundPlane.Raycast(ray, out float enterDistance) == false)
-            {
-                return;
-            }
-
-            lookPoint = ray.GetPoint(enterDistance);
         }
 
         lookPoint.y = transform.position.y;
-        Vector3 lookDirection = lookPoint - transform.position;
-        if (lookDirection.sqrMagnitude < 0.001f)
-        {
-            return;
-        }
-
         transform.LookAt(lookPoint);
     }
 }

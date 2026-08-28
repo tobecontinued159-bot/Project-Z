@@ -3,11 +3,13 @@ using UnityEngine;
 using UnityEngine.AI;
 
 [RequireComponent(typeof(NavMeshAgent))]
+[RequireComponent(typeof(NetworkTransform))]
 public class ZombieAI : NetworkBehaviour
 {
     [Networked] public int Health { get; set; }
 
     [SerializeField] private float destinationUpdateInterval = 0.25f;
+    [SerializeField] private int startingHealth = 100;
 
     private NavMeshAgent _agent;
     private float _nextDestinationTime;
@@ -15,35 +17,47 @@ public class ZombieAI : NetworkBehaviour
     public override void Spawned()
     {
         _agent = GetComponent<NavMeshAgent>();
-        if (_agent == null)
-        {
-            _agent = gameObject.AddComponent<NavMeshAgent>();
-        }
 
         if (HasStateAuthority)
         {
-            Health = 100;
-            _agent.enabled = true;
+            Health = startingHealth;
+            if (_agent != null)
+            {
+                _agent.enabled = true;
+            }
         }
         else
         {
-            _agent.enabled = false;
+            if (_agent != null)
+            {
+                _agent.enabled = false;
+            }
         }
     }
 
-    public void TakeDamage(int damage, PlayerStats attacker)
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    public void RPC_RequestDamage(int damage, PlayerStats attacker)
     {
         if (HasStateAuthority == false)
         {
             return;
         }
 
+        ApplyDamage(damage, attacker);
+    }
+
+    private void ApplyDamage(int damage, PlayerStats attacker)
+    {
         Health -= damage;
         Debug.Log($"{name} took {damage} damage. Health: {Health}");
 
         if (Health <= 0)
         {
-            if (attacker != null)
+            if (attacker != null && attacker.HasStateAuthority)
+            {
+                attacker.AddPointsLocal(10);
+            }
+            else if (attacker != null)
             {
                 attacker.RPC_AddPoints(10);
             }
@@ -70,6 +84,7 @@ public class ZombieAI : NetworkBehaviour
         }
 
         _nextDestinationTime = Runner.SimulationTime + destinationUpdateInterval;
+
         Transform nearestPlayer = FindNearestPlayer();
         if (nearestPlayer == null)
         {
@@ -81,22 +96,26 @@ public class ZombieAI : NetworkBehaviour
 
     private Transform FindNearestPlayer()
     {
-        GameObject[] players = GameObject.FindGameObjectsWithTag("Player");
+        if (NetworkPlayerSpawner.AllPlayers == null || NetworkPlayerSpawner.AllPlayers.Count == 0)
+        {
+            return null;
+        }
+
         Transform nearest = null;
         float nearestDistance = float.MaxValue;
 
-        for (int i = 0; i < players.Length; i++)
+        for (int i = 0; i < NetworkPlayerSpawner.AllPlayers.Count; i++)
         {
-            GameObject player = players[i];
+            NetworkObject player = NetworkPlayerSpawner.AllPlayers[i];
             if (player == null)
             {
                 continue;
             }
 
-            float distance = (player.transform.position - transform.position).sqrMagnitude;
-            if (distance < nearestDistance)
+            float sqrDistance = (player.transform.position - transform.position).sqrMagnitude;
+            if (sqrDistance < nearestDistance)
             {
-                nearestDistance = distance;
+                nearestDistance = sqrDistance;
                 nearest = player.transform;
             }
         }
