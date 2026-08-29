@@ -18,6 +18,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
     private bool _hasSpawnedLocalPlayer;
 
     private Camera _cachedMainCamera;
+    private bool _fireRequestPending;
 
     public void SetPlayerPrefab(NetworkObject prefab)
     {
@@ -27,6 +28,14 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
     private void Awake()
     {
         Instance = this;
+    }
+
+    private void Update()
+    {
+        if (Input.GetButtonDown("Fire1"))
+        {
+            _fireRequestPending = true;
+        }
     }
 
     private async void Start()
@@ -195,7 +204,8 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
             data.LookDirection = lookPoint;
         }
 
-        data.FirePressed = Input.GetButtonDown("Fire1");
+        data.FirePressed = _fireRequestPending;
+        _fireRequestPending = false;
 
         input.Set(data);
     }
@@ -209,6 +219,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
         _spawnedPlayers.Clear();
         AllPlayers.Clear();
         _hasSpawnedLocalPlayer = false;
+        _fireRequestPending = false;
         Debug.Log($"Fusion shutdown: {shutdownReason}");
     }
 

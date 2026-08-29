@@ -197,6 +197,7 @@ MonoBehaviour:
   _Health: 0
   destinationUpdateInterval: 0.25
   startingHealth: 100
+  killPoints: 10
 --- !u!114 &6874034344993120348
 MonoBehaviour:
   m_ObjectHideFlags: 0
