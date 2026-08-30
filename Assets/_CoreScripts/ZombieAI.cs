@@ -8,10 +8,17 @@ public class ZombieAI : NetworkBehaviour
 {
     [Networked] public int Health { get; set; }
     [Networked] private NetworkBool IsDead { get; set; }
+    [Networked] private TickTimer AttackCooldown { get; set; }
 
+    [Header("AI Movement")]
     [SerializeField] private float destinationUpdateInterval = 0.25f;
     [SerializeField] private int startingHealth = 100;
     [SerializeField] private int killPoints = 10;
+
+    [Header("Melee Attack")]
+    [SerializeField] private float attackRange = 1.8f;
+    [SerializeField] private int attackDamage = 10;
+    [SerializeField] private float attackInterval = 1f;
 
     private NavMeshAgent _agent;
     private float _nextDestinationTime;
@@ -24,6 +31,7 @@ public class ZombieAI : NetworkBehaviour
         {
             Health = startingHealth;
             IsDead = false;
+            AttackCooldown = TickTimer.None;
             if (_agent != null)
             {
                 _agent.enabled = true;
@@ -141,18 +149,80 @@ public class ZombieAI : NetworkBehaviour
 
         if (Runner.SimulationTime < _nextDestinationTime)
         {
-            return;
+        }
+        else
+        {
+            _nextDestinationTime = Runner.SimulationTime + destinationUpdateInterval;
+
+            Transform nearestPlayer = FindNearestPlayer();
+            if (nearestPlayer != null)
+            {
+                _agent.SetDestination(nearestPlayer.position);
+            }
         }
 
-        _nextDestinationTime = Runner.SimulationTime + destinationUpdateInterval;
+        TryMeleeAttack();
+    }
 
-        Transform nearestPlayer = FindNearestPlayer();
-        if (nearestPlayer == null)
+    private void TryMeleeAttack()
+    {
+        if (AttackCooldown.ExpiredOrNotRunning(Runner) == false)
         {
             return;
         }
 
-        _agent.SetDestination(nearestPlayer.position);
+        if (NetworkPlayerSpawner.AllPlayers == null || NetworkPlayerSpawner.AllPlayers.Count == 0)
+        {
+            return;
+        }
+
+        PlayerStats nearestPlayerStats = null;
+        float nearestSqrDistance = float.MaxValue;
+
+        for (int i = 0; i < NetworkPlayerSpawner.AllPlayers.Count; i++)
+        {
+            NetworkObject playerNo = NetworkPlayerSpawner.AllPlayers[i];
+            if (playerNo == null)
+            {
+                continue;
+            }
+
+            PlayerStats stats = playerNo.GetComponent<PlayerStats>();
+            if (stats == null || stats.IsDead)
+            {
+                continue;
+            }
+
+            float sqrDistance = (playerNo.transform.position - transform.position).sqrMagnitude;
+            if (sqrDistance < nearestSqrDistance)
+            {
+                nearestSqrDistance = sqrDistance;
+                nearestPlayerStats = stats;
+            }
+        }
+
+        if (nearestPlayerStats == null)
+        {
+            return;
+        }
+
+        if (nearestSqrDistance > (attackRange * attackRange))
+        {
+            return;
+        }
+
+        AttackCooldown = TickTimer.CreateFromSeconds(Runner, attackInterval);
+
+        if (nearestPlayerStats.HasStateAuthority)
+        {
+            nearestPlayerStats.TakeDamageLocal(attackDamage);
+        }
+        else
+        {
+            nearestPlayerStats.RPC_RequestTakeDamage(attackDamage);
+        }
+
+        Debug.Log($"{name} attacked player! Damage: {attackDamage}");
     }
 
     private Transform FindNearestPlayer()

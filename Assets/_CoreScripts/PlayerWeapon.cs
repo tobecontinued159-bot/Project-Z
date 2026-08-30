@@ -19,6 +19,7 @@ public class PlayerWeapon : NetworkBehaviour
     [Networked] private TickTimer FireCooldown { get; set; }
 
     private LineRenderer _laserLine;
+    private PlayerStats _cachedStats;
 
     public override void Spawned()
     {
@@ -27,11 +28,25 @@ public class PlayerWeapon : NetworkBehaviour
 
     private void LateUpdate()
     {
+        if (EnsureStats() && _cachedStats.IsDead)
+        {
+            if (_laserLine != null)
+            {
+                _laserLine.enabled = false;
+            }
+            return;
+        }
+
         UpdateLaserSight();
     }
 
     public override void FixedUpdateNetwork()
     {
+        if (EnsureStats() && _cachedStats.IsDead)
+        {
+            return;
+        }
+
         if (GetInput(out PlayerInput input) == false)
         {
             return;
@@ -49,6 +64,16 @@ public class PlayerWeapon : NetworkBehaviour
 
         ProcessFire();
         FireCooldown = TickTimer.CreateFromSeconds(Runner, fireRate);
+    }
+
+    private bool EnsureStats()
+    {
+        if (_cachedStats == null)
+        {
+            _cachedStats = GetComponent<PlayerStats>();
+        }
+
+        return _cachedStats != null;
     }
 
     private void SetupLaserSight()
@@ -104,15 +129,7 @@ public class PlayerWeapon : NetworkBehaviour
 
         _laserLine.SetPosition(0, muzzlePosition);
         _laserLine.SetPosition(1, endPoint);
-
-        if (Object.HasInputAuthority)
-        {
-            _laserLine.enabled = true;
-        }
-        else
-        {
-            _laserLine.enabled = true;
-        }
+        _laserLine.enabled = true;
     }
 
     private void ProcessFire()

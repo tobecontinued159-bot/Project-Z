@@ -51,6 +51,8 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
+        DisableFusionDebugIMGUI();
+
         _runner.AddCallbacks(this);
         DontDestroyOnLoad(gameObject);
 
@@ -90,9 +92,33 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
+        DisableFusionDebugIMGUI();
+
         if (_runner.LocalPlayer.IsRealPlayer)
         {
             SpawnLocalPlayer(_runner, _runner.LocalPlayer);
+        }
+    }
+
+    private static void DisableFusionDebugIMGUI()
+    {
+        FusionBootstrapDebugGUI[] allDebugGuis = UnityEngine.Object.FindObjectsOfType<FusionBootstrapDebugGUI>(true);
+        if (allDebugGuis == null || allDebugGuis.Length == 0)
+        {
+            return;
+        }
+
+        for (int i = 0; i < allDebugGuis.Length; i++)
+        {
+            FusionBootstrapDebugGUI gui = allDebugGuis[i];
+            if (gui == null)
+            {
+                continue;
+            }
+
+            gui.enabled = false;
+            UnityEngine.Object.Destroy(gui);
+            Debug.Log($"Removed Fusion IMGUI Debug component from: {gui.gameObject.name}");
         }
     }
 

@@ -6,8 +6,15 @@ public class PlayerController : NetworkBehaviour
 {
     [SerializeField] private float moveSpeed = 5f;
 
+    private PlayerStats _cachedStats;
+
     public override void FixedUpdateNetwork()
     {
+        if (EnsureStats() && _cachedStats.IsDead)
+        {
+            return;
+        }
+
         if (GetInput(out PlayerInput input) == false)
         {
             return;
@@ -15,6 +22,16 @@ public class PlayerController : NetworkBehaviour
 
         MovePlayer(input.MoveInput);
         FaceLookPoint(input.LookDirection);
+    }
+
+    private bool EnsureStats()
+    {
+        if (_cachedStats == null)
+        {
+            _cachedStats = GetComponent<PlayerStats>();
+        }
+
+        return _cachedStats != null;
     }
 
     private void MovePlayer(Vector2 moveInput)
