@@ -3,25 +3,18 @@ using UnityEngine;
 
 public class BuyableDoor : NetworkBehaviour
 {
-    [Header("Door Settings")]
     public int doorCost = 100;
 
     [Networked] public NetworkBool IsOpen { get; set; }
 
     public override void Spawned()
     {
-        if (IsOpen)
-        {
-            HideDoor();
-        }
+        ApplyOpenState();
     }
 
     public override void FixedUpdateNetwork()
     {
-        if (IsOpen)
-        {
-            HideDoor();
-        }
+        ApplyOpenState();
     }
 
     private void OnTriggerEnter(Collider other)
@@ -54,35 +47,29 @@ public class BuyableDoor : NetworkBehaviour
 
         if (playerStats.Points < doorCost)
         {
-            Debug.Log($"Not enough points to open {name}. Need {doorCost}, have {playerStats.Points}.");
+            Debug.Log($"Not enough points. Need {doorCost}, have {playerStats.Points}.");
             return;
         }
 
         playerStats.Points -= doorCost;
-        Debug.Log($"{playerStats.Object.name} spent {doorCost} points to open {name}. Remaining: {playerStats.Points}");
+        Debug.Log($"{playerStats.name} spent {doorCost} points. Remaining: {playerStats.Points}");
         RPC_RequestOpenDoor();
     }
 
-    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
     private void RPC_RequestOpenDoor()
     {
-        if (HasStateAuthority == false)
-        {
-            return;
-        }
-
-        if (IsOpen)
+        if (HasStateAuthority == false || IsOpen)
         {
             return;
         }
 
         IsOpen = true;
-        Debug.Log($"{name} opened.");
     }
 
-    private void HideDoor()
+    private void ApplyOpenState()
     {
-        if (gameObject.activeSelf)
+        if (IsOpen && gameObject.activeSelf)
         {
             gameObject.SetActive(false);
         }

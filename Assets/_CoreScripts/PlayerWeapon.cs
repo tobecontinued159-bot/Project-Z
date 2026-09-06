@@ -10,6 +10,14 @@ public class PlayerWeapon : NetworkBehaviour
     [SerializeField] private int damage = 25;
     [SerializeField] private float fireRate = 0.2f;
 
+    [Header("Upgrade Settings")]
+    [SerializeField] private int upgradeDamageBonus = 15;
+    [SerializeField] private float upgradeFireRateMultiplier = 0.7f;
+    [SerializeField] private float minFireRate = 0.08f;
+
+    [Networked] public int Damage { get; set; }
+    [Networked] public float FireRate { get; set; }
+
     [Header("Laser Sight")]
     [SerializeField] private float laserWidth = 0.03f;
     [SerializeField] private Color laserColor = new Color(1f, 0f, 0f, 0.7f);
@@ -24,6 +32,41 @@ public class PlayerWeapon : NetworkBehaviour
     public override void Spawned()
     {
         SetupLaserSight();
+
+        if (HasStateAuthority)
+        {
+            Damage = damage;
+            FireRate = fireRate;
+        }
+    }
+
+    public void UpgradeWeapon()
+    {
+        if (HasStateAuthority == false)
+        {
+            RPC_RequestUpgrade();
+            return;
+        }
+
+        ApplyUpgrade();
+    }
+
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
+    private void RPC_RequestUpgrade()
+    {
+        if (HasStateAuthority == false)
+        {
+            return;
+        }
+
+        ApplyUpgrade();
+    }
+
+    private void ApplyUpgrade()
+    {
+        Damage += upgradeDamageBonus;
+        FireRate = Mathf.Max(minFireRate, FireRate * upgradeFireRateMultiplier);
+        Debug.Log($"{name} upgraded weapon. Damage: {Damage}, FireRate: {FireRate:0.00}");
     }
 
     private void LateUpdate()
@@ -63,7 +106,8 @@ public class PlayerWeapon : NetworkBehaviour
         }
 
         ProcessFire();
-        FireCooldown = TickTimer.CreateFromSeconds(Runner, fireRate);
+        float currentFireRate = FireRate > 0f ? FireRate : fireRate;
+        FireCooldown = TickTimer.CreateFromSeconds(Runner, currentFireRate);
     }
 
     private bool EnsureStats()
@@ -145,7 +189,8 @@ public class PlayerWeapon : NetworkBehaviour
             if (zombie != null)
             {
                 PlayerRef shooterPlayerRef = Object.InputAuthority;
-                zombie.RPC_RequestDamage(damage, shooterPlayerRef);
+                int currentDamage = Damage > 0 ? Damage : damage;
+                zombie.RPC_RequestDamage(currentDamage, shooterPlayerRef);
             }
         }
     }
