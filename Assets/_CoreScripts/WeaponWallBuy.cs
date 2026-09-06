@@ -22,11 +22,21 @@ public class WeaponWallBuy : NetworkBehaviour
 
     public override void FixedUpdateNetwork()
     {
+        if (Object == null || Object.IsValid == false)
+        {
+            return;
+        }
+
         ApplyPurchasedState();
     }
 
     private void Update()
     {
+        if (Object == null || Object.IsValid == false)
+        {
+            return;
+        }
+
         RefreshPrompt();
 
         if (IsPurchased || _localPlayerInRange == false)
@@ -44,6 +54,11 @@ public class WeaponWallBuy : NetworkBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
+        if (Object == null || Object.IsValid == false)
+        {
+            return;
+        }
+
         if (TryGetLocalPlayer(other, out PlayerStats stats, out PlayerWeapon weapon) == false)
         {
             return;
@@ -57,6 +72,11 @@ public class WeaponWallBuy : NetworkBehaviour
 
     private void OnTriggerExit(Collider other)
     {
+        if (Object == null || Object.IsValid == false)
+        {
+            return;
+        }
+
         if (TryGetLocalPlayer(other, out _, out _) == false)
         {
             return;
@@ -68,6 +88,11 @@ public class WeaponWallBuy : NetworkBehaviour
 
     private void TryPurchase()
     {
+        if (Object == null || Object.IsValid == false)
+        {
+            return;
+        }
+
         if (_localPlayerStats == null || _localPlayerWeapon == null)
         {
             return;
@@ -124,6 +149,11 @@ public class WeaponWallBuy : NetworkBehaviour
         stats = null;
         weapon = null;
 
+        if (Object == null || Object.IsValid == false)
+        {
+            return false;
+        }
+
         if (IsPurchased)
         {
             return false;
@@ -146,6 +176,11 @@ public class WeaponWallBuy : NetworkBehaviour
 
     private void ApplyPurchasedState()
     {
+        if (Object == null || Object.IsValid == false)
+        {
+            return;
+        }
+
         if (IsPurchased)
         {
             HideBox();
@@ -175,6 +210,12 @@ public class WeaponWallBuy : NetworkBehaviour
         EnsurePrompt();
         if (_sharedPromptText == null)
         {
+            return;
+        }
+
+        if (Object == null || Object.IsValid == false)
+        {
+            _sharedPromptText.enabled = false;
             return;
         }
 

@@ -237,6 +237,37 @@ MonoBehaviour:
   m_BlockingMask:
     serializedVersion: 2
     m_Bits: 4294967295
+--- !u!1 &4532812499009346150
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4090329713993140617}
+  m_Layer: 0
+  m_Name: FirePoint
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &4090329713993140617
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4532812499009346150}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -0.073, y: -0.063, z: 0.513}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 2084971292522309146}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &5976126117437612158
 GameObject:
   m_ObjectHideFlags: 0
@@ -279,6 +310,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 2976004481449343202}
+  - {fileID: 4090329713993140617}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!33 &2365400265068776758
@@ -444,10 +476,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 45b8f36c96924974f97cf003eb7f4fa9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  firePoint: {fileID: 4090329713993140617}
   weaponRange: 50
-  muzzleHeight: 0.5
+  chestHeight: 1
+  shotRadius: 0.5
   damage: 25
   fireRate: 0.2
+  upgradeDamageBonus: 15
+  upgradeFireRateMultiplier: 0.7
+  minFireRate: 0.08
+  _Damage: 0
+  _FireRate: 0
   laserWidth: 0.03
   laserColor: {r: 1, g: 0, b: 0, a: 0.7}
   laserGradient:

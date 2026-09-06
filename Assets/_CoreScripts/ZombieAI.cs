@@ -75,6 +75,7 @@ public class ZombieAI : NetworkBehaviour
             if (HasStateAuthority)
             {
                 AwardKillPoints(attackerPlayerRef);
+                NotifyWaveManager();
                 Runner.Despawn(Object);
             }
         }
@@ -223,6 +224,21 @@ public class ZombieAI : NetworkBehaviour
         }
 
         Debug.Log($"{name} attacked player! Damage: {attackDamage}");
+    }
+
+    private void NotifyWaveManager()
+    {
+        if (WaveManager.Instance != null)
+        {
+            WaveManager.Instance.OnZombieDied();
+            return;
+        }
+
+        WaveManager waveManager = FindFirstObjectByType<WaveManager>();
+        if (waveManager != null)
+        {
+            waveManager.OnZombieDied();
+        }
     }
 
     private Transform FindNearestPlayer()

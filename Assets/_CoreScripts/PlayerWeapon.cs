@@ -5,8 +5,10 @@ using UnityEngine;
 public class PlayerWeapon : NetworkBehaviour
 {
     [Header("Weapon Settings")]
+    [SerializeField] private Transform firePoint;
     [SerializeField] private float weaponRange = 50f;
-    [SerializeField] private float muzzleHeight = 0.5f;
+    [SerializeField] private float chestHeight = 1f;
+    [SerializeField] private float shotRadius = 0.5f;
     [SerializeField] private int damage = 25;
     [SerializeField] private float fireRate = 0.2f;
 
@@ -31,6 +33,7 @@ public class PlayerWeapon : NetworkBehaviour
 
     public override void Spawned()
     {
+        EnsureFirePoint();
         SetupLaserSight();
 
         if (HasStateAuthority)
@@ -80,7 +83,7 @@ public class PlayerWeapon : NetworkBehaviour
             return;
         }
 
-        UpdateLaserSight();
+        Fire(applyDamage: false);
     }
 
     public override void FixedUpdateNetwork()
@@ -105,7 +108,7 @@ public class PlayerWeapon : NetworkBehaviour
             return;
         }
 
-        ProcessFire();
+        Fire(applyDamage: true);
         float currentFireRate = FireRate > 0f ? FireRate : fireRate;
         FireCooldown = TickTimer.CreateFromSeconds(Runner, currentFireRate);
     }
@@ -152,47 +155,114 @@ public class PlayerWeapon : NetworkBehaviour
         }
 
         _laserLine.numCapVertices = 2;
-        _laserLine.useWorldSpace = true;
+        _laserLine.useWorldSpace = true; // บังคับ Use World Space ในโค้ด
     }
 
-    private void UpdateLaserSight()
+    private void EnsureFirePoint()
     {
-        if (_laserLine == null)
+        if (firePoint != null)
         {
             return;
         }
 
-        Vector3 muzzlePosition = transform.position + Vector3.up * muzzleHeight;
-        Vector3 direction = transform.forward;
-        Vector3 endPoint = muzzlePosition + direction * weaponRange;
-
-        if (Physics.Raycast(muzzlePosition, direction, out RaycastHit hit, weaponRange))
+        Transform existing = transform.Find("FirePoint");
+        if (existing != null)
         {
-            endPoint = hit.point;
+            firePoint = existing;
+            return;
         }
 
-        _laserLine.SetPosition(0, muzzlePosition);
-        _laserLine.SetPosition(1, endPoint);
-        _laserLine.enabled = true;
+        GameObject firePointGo = new GameObject("FirePoint");
+        firePointGo.transform.SetParent(transform, false);
+        firePointGo.transform.localPosition = new Vector3(0f, chestHeight, 0.6f);
+        firePoint = firePointGo.transform;
     }
 
-    private void ProcessFire()
+    private void Fire(bool applyDamage)
     {
-        Vector3 muzzlePosition = transform.position + Vector3.up * muzzleHeight;
-        Vector3 fireDirection = transform.forward;
-
-        RPC_RenderShotEffect(muzzlePosition, fireDirection);
-
-        if (Physics.Raycast(muzzlePosition, fireDirection, out RaycastHit hit, weaponRange))
+        EnsureFirePoint();
+        if (firePoint == null)
         {
-            ZombieAI zombie = hit.collider.GetComponentInParent<ZombieAI>();
-            if (zombie != null)
+            return;
+        }
+
+        // ใช้ตำแหน่ง firePoint ตรงๆ เลย ไม่ต้องไปบังคับแก้แกน Y แบบโค้ดเก่า
+        Vector3 fireOrigin = firePoint.position;
+
+        Vector3 targetPoint = fireOrigin + FlattenHorizontal(transform.forward);
+        Camera gameplayCamera = Camera.main;
+        
+        if (HasInputAuthority && gameplayCamera != null)
+        {
+            Ray ray = gameplayCamera.ScreenPointToRay(Input.mousePosition);
+            
+            // สร้าง Plane จำลองให้อยู่ระดับเดียวกับ firePoint แบบเป๊ะๆ
+            Plane aimPlane = new Plane(Vector3.up, fireOrigin);
+            
+            if (aimPlane.Raycast(ray, out float enter))
             {
-                PlayerRef shooterPlayerRef = Object.InputAuthority;
-                int currentDamage = Damage > 0 ? Damage : damage;
-                zombie.RPC_RequestDamage(currentDamage, shooterPlayerRef);
+                targetPoint = ray.GetPoint(enter);
             }
         }
+        else if (GetInput(out PlayerInput input))
+        {
+            targetPoint = input.LookDirection;
+        }
+
+        // บังคับให้เป้าหมายมีความสูงเท่ากับจุดปล่อยกระสุน
+        targetPoint.y = fireOrigin.y;
+
+        Vector3 direction = targetPoint - fireOrigin;
+        direction.y = 0f; // ล็อกไม่ให้กระสุนเฉียงขึ้น/ลง
+        
+        if (direction.sqrMagnitude < 0.001f)
+        {
+            direction = FlattenHorizontal(transform.forward);
+        }
+        direction.Normalize();
+
+        Vector3 endPosition = fireOrigin + (direction * weaponRange);
+
+        if (Physics.SphereCast(fireOrigin, shotRadius, direction, out RaycastHit hit, weaponRange, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+        {
+            endPosition = fireOrigin + (direction * hit.distance);
+            endPosition.y = fireOrigin.y; // ล็อกจุดตกกระทบให้ขนานพื้น
+
+            if (applyDamage)
+            {
+                ZombieAI zombie = hit.collider.GetComponentInParent<ZombieAI>();
+                if (zombie != null)
+                {
+                    PlayerRef shooterPlayerRef = Object.InputAuthority;
+                    int currentDamage = Damage > 0 ? Damage : damage;
+                    zombie.RPC_RequestDamage(currentDamage, shooterPlayerRef);
+                }
+            }
+        }
+
+        if (_laserLine != null)
+        {
+            _laserLine.useWorldSpace = true; // แถมให้อีกรอบกันเหนียว
+            _laserLine.SetPosition(0, fireOrigin);
+            _laserLine.SetPosition(1, endPosition);
+            _laserLine.enabled = true;
+        }
+
+        if (applyDamage)
+        {
+            RPC_RenderShotEffect(fireOrigin, direction);
+        }
+    }
+
+    private static Vector3 FlattenHorizontal(Vector3 value)
+    {
+        value.y = 0f;
+        if (value.sqrMagnitude < 0.001f)
+        {
+            return Vector3.forward;
+        }
+
+        return value.normalized;
     }
 
     [Rpc(RpcSources.InputAuthority, RpcTargets.All, Channel = RpcChannel.Unreliable)]
