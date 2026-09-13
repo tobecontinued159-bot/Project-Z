@@ -9,6 +9,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 {
     [SerializeField] private NetworkObject playerPrefab;
     [SerializeField] private string sessionName = "TestRoom";
+    public Transform spawnPoint;
 
     public static NetworkPlayerSpawner Instance { get; private set; }
     public static readonly List<NetworkObject> AllPlayers = new List<NetworkObject>();
@@ -152,7 +153,10 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
-        NetworkObject networkPlayer = runner.Spawn(playerPrefab, new Vector3(0f, 1f, 0f), Quaternion.identity, player);
+        Vector3 spawnPosition = spawnPoint != null ? spawnPoint.position : new Vector3(0f, 1f, 0f);
+        Quaternion spawnRotation = spawnPoint != null ? spawnPoint.rotation : Quaternion.identity;
+
+        NetworkObject networkPlayer = runner.Spawn(playerPrefab, spawnPosition, spawnRotation, player);
         if (networkPlayer == null)
         {
             Debug.LogError("NetworkPlayerSpawner: runner.Spawn returned null. Check that PlayerPrefab is a NetworkObject and has been baked.");

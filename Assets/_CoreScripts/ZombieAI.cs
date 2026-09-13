@@ -32,18 +32,47 @@ public class ZombieAI : NetworkBehaviour
             Health = startingHealth;
             IsDead = false;
             AttackCooldown = TickTimer.None;
-            if (_agent != null)
-            {
-                _agent.enabled = true;
-            }
+            EnableAgentOnNavMesh();
         }
-        else
+        else if (_agent != null)
         {
-            if (_agent != null)
-            {
-                _agent.enabled = false;
-            }
+            _agent.enabled = false;
         }
+    }
+
+    private void EnableAgentOnNavMesh()
+    {
+        if (_agent == null)
+        {
+            return;
+        }
+
+        if (_agent.enabled == false)
+        {
+            _agent.enabled = true;
+        }
+
+        Vector3 snapPosition = transform.position;
+        if (NavMesh.SamplePosition(transform.position, out NavMeshHit hit, 8f, NavMesh.AllAreas))
+        {
+            snapPosition = hit.position;
+        }
+
+        if (_agent.enabled)
+        {
+            _agent.Warp(snapPosition);
+        }
+
+        if (_agent.enabled && _agent.isOnNavMesh)
+        {
+            _agent.updatePosition = true;
+            _agent.updateRotation = true;
+        }
+    }
+
+    private bool IsAgentOnNavMesh()
+    {
+        return _agent != null && _agent.enabled && _agent.isOnNavMesh;
     }
 
     [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
@@ -143,20 +172,31 @@ public class ZombieAI : NetworkBehaviour
             return;
         }
 
-        if (_agent == null || _agent.isOnNavMesh == false)
+        if (_agent == null)
+        {
+            _agent = GetComponent<NavMeshAgent>();
+        }
+
+        if (_agent == null)
         {
             return;
         }
 
-        if (Runner.SimulationTime < _nextDestinationTime)
+        if (IsAgentOnNavMesh() == false)
         {
+            EnableAgentOnNavMesh();
         }
-        else
+
+        if (IsAgentOnNavMesh() == false)
+        {
+            return;
+        }
+
+        if (Runner.SimulationTime >= _nextDestinationTime)
         {
             _nextDestinationTime = Runner.SimulationTime + destinationUpdateInterval;
-
             Transform nearestPlayer = FindNearestPlayer();
-            if (nearestPlayer != null)
+            if (nearestPlayer != null && IsAgentOnNavMesh())
             {
                 _agent.SetDestination(nearestPlayer.position);
             }
@@ -243,30 +283,58 @@ public class ZombieAI : NetworkBehaviour
 
     private Transform FindNearestPlayer()
     {
-        if (NetworkPlayerSpawner.AllPlayers == null || NetworkPlayerSpawner.AllPlayers.Count == 0)
-        {
-            return null;
-        }
-
         Transform nearest = null;
         float nearestDistance = float.MaxValue;
 
-        for (int i = 0; i < NetworkPlayerSpawner.AllPlayers.Count; i++)
+        if (NetworkPlayerSpawner.AllPlayers != null)
         {
-            NetworkObject player = NetworkPlayerSpawner.AllPlayers[i];
-            if (player == null)
+            for (int i = 0; i < NetworkPlayerSpawner.AllPlayers.Count; i++)
+            {
+                NetworkObject player = NetworkPlayerSpawner.AllPlayers[i];
+                if (player == null)
+                {
+                    continue;
+                }
+
+                PlayerStats stats = player.GetComponent<PlayerStats>();
+                if (stats != null && stats.IsDead)
+                {
+                    continue;
+                }
+
+                ConsiderCandidate(player.transform.position, player.transform, ref nearest, ref nearestDistance);
+            }
+        }
+
+        GameObject[] taggedPlayers = GameObject.FindGameObjectsWithTag("Player");
+        for (int i = 0; i < taggedPlayers.Length; i++)
+        {
+            GameObject taggedPlayer = taggedPlayers[i];
+            if (taggedPlayer == null || taggedPlayer.activeInHierarchy == false)
             {
                 continue;
             }
 
-            float sqrDistance = (player.transform.position - transform.position).sqrMagnitude;
-            if (sqrDistance < nearestDistance)
+            PlayerStats stats = taggedPlayer.GetComponentInParent<PlayerStats>();
+            if (stats != null && stats.IsDead)
             {
-                nearestDistance = sqrDistance;
-                nearest = player.transform;
+                continue;
             }
+
+            Transform candidate = stats != null ? stats.transform : taggedPlayer.transform;
+            ConsiderCandidate(candidate.position, candidate, ref nearest, ref nearestDistance);
         }
 
         return nearest;
+    }
+
+    private void ConsiderCandidate(Vector3 position, Transform candidate, ref Transform nearest, ref float nearestDistance)
+    {
+        float sqrDistance = (position - transform.position).sqrMagnitude;
+        if (sqrDistance < nearestDistance)
+        {
+            nearestDistance = sqrDistance;
+            nearest = candidate;
+        }
     }
 }
