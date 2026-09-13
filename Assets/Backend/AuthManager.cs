@@ -49,11 +49,11 @@ public class AuthManager : MonoBehaviour
         // UX Validation: เช็คว่ากรอกข้อมูลครบถ้วนไหม
         if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
         {
-            statusText.text = "กรุณากรอกชื่อผู้ใช้และรหัสผ่านให้ครบถ้วน";
+            statusText.text = "Plase Input Username and Password";
             yield break;
         }
 
-        statusText.text = "กำลังดำเนินการ...";
+        statusText.text = "Loading...";
 
         // 1. แปลงข้อมูลเป็นรูปแบบ JSON
         UserData data = new UserData { username = username, password = password };
@@ -80,7 +80,7 @@ public class AuthManager : MonoBehaviour
                 }
                 else
                 {
-                    statusText.text = "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้";
+                    statusText.text = "Can't Join Server";
                 }
             }
             else
@@ -97,21 +97,21 @@ public class AuthManager : MonoBehaviour
         switch (messageCode)
         {
             case "REGISTER_SUCCESS":
-                statusText.text = "<color=green>สมัครสมาชิกสำเร็จ! สามารถเข้าสู่ระบบได้เลย</color>";
+                statusText.text = "<color=green>Register Success!</color>";
                 break;
             case "LOGIN_SUCCESS":
-                statusText.text = "<color=green>เข้าสู่ระบบสำเร็จ!</color>";
+                statusText.text = "<color=green>Login Success!</color>";
                 // TODO: คำสั่งย้ายไปหน้าเมนูหลักของเกม เช่น SceneManager.LoadScene("MainMenu");
                 break;
             case "USERNAME_EXISTS":
-                statusText.text = "<color=red>ชื่อผู้ใช้นี้ถูกใช้งานแล้ว</color>";
+                statusText.text = "<color=red>This username is already in use.</color>";
                 break;
             case "USER_NOT_FOUND":
             case "WRONG_PASSWORD":
-                statusText.text = "<color=red>ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง</color>";
+                statusText.text = "<color=red>The username of password is incorrect.</color>";
                 break;
             default:
-                statusText.text = "<color=red>เกิดข้อผิดพลาด: " + messageCode + "</color>";
+                statusText.text = "<color=red>Error: " + messageCode + "</color>";
                 break;
         }
     }
