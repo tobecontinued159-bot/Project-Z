@@ -3,7 +3,6 @@ using UnityEngine;
 
 public class PlayerStats : NetworkBehaviour
 {
-    [Networked] public int Points { get; set; }
     [Networked] public int Kills { get; set; }
     [Networked] public int Health { get; set; }
     [Networked] public NetworkBool IsDead { get; set; }
@@ -19,6 +18,35 @@ public class PlayerStats : NetworkBehaviour
     private Renderer[] _allRenderers;
     private Collider[] _allColliders;
     private bool _visualsHidden;
+    private PlayerPoints _playerPoints;
+
+    public int Points
+    {
+        get
+        {
+            return PlayerPointsComponent != null ? PlayerPointsComponent.TotalPoints : 0;
+        }
+        set
+        {
+            if (PlayerPointsComponent != null && PlayerPointsComponent.HasStateAuthority)
+            {
+                PlayerPointsComponent.TotalPoints = Mathf.Max(0, value);
+            }
+        }
+    }
+
+    private PlayerPoints PlayerPointsComponent
+    {
+        get
+        {
+            if (_playerPoints == null)
+            {
+                _playerPoints = GetComponent<PlayerPoints>();
+            }
+
+            return _playerPoints;
+        }
+    }
 
     public float RemainingRespawnSeconds
     {
@@ -39,7 +67,6 @@ public class PlayerStats : NetworkBehaviour
 
         if (HasStateAuthority)
         {
-            Points = 0;
             Kills = 0;
             Health = startingHealth;
             IsDead = false;
@@ -69,21 +96,37 @@ public class PlayerStats : NetworkBehaviour
 
     public void AddPointsLocal(int amount)
     {
-        if (HasStateAuthority == false)
+        if (PlayerPointsComponent != null)
         {
-            RPC_AddPoints(amount);
+            PlayerPointsComponent.AddPoints(amount);
+            Debug.Log($"{Object.name} Points: {PlayerPointsComponent.TotalPoints}");
             return;
         }
 
-        Points += amount;
-        Debug.Log($"{Object.name} Points (Local): {Points}");
+        if (HasStateAuthority == false)
+        {
+            RPC_AddPoints(amount);
+        }
     }
 
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
     public void RPC_AddPoints(int amount)
     {
-        Points += amount;
-        Debug.Log($"{Object.name} Points (RPC): {Points}");
+        if (PlayerPointsComponent != null)
+        {
+            PlayerPointsComponent.AddPoints(amount);
+            Debug.Log($"{Object.name} Points (RPC): {PlayerPointsComponent.TotalPoints}");
+        }
+    }
+
+    public bool TrySpendPoints(int amount)
+    {
+        if (PlayerPointsComponent != null)
+        {
+            return PlayerPointsComponent.TrySpendPoints(amount);
+        }
+
+        return false;
     }
 
     public void TakeDamageLocal(int damage)

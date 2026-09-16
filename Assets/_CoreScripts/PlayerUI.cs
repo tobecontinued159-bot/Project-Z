@@ -15,6 +15,7 @@ public class PlayerUI : NetworkBehaviour
     [SerializeField] private TMP_Text respawnText;
 
     private PlayerStats _cachedPlayerStats;
+    private PlayerPoints _cachedPlayerPoints;
     private int _lastHealth = -1;
     private int _lastPoints = -1;
     private int _lastKills = -1;
@@ -30,6 +31,7 @@ public class PlayerUI : NetworkBehaviour
         }
 
         TryCachePlayerStats();
+        TryCachePlayerPoints();
         CreateDefaultUIIfMissing();
         RefreshUI(force: true);
     }
@@ -44,6 +46,15 @@ public class PlayerUI : NetworkBehaviour
         if (_cachedPlayerStats == null)
         {
             TryCachePlayerStats();
+        }
+
+        if (_cachedPlayerPoints == null)
+        {
+            TryCachePlayerPoints();
+        }
+
+        if (_cachedPlayerStats == null)
+        {
             return;
         }
 
@@ -67,7 +78,7 @@ public class PlayerUI : NetworkBehaviour
             changed = true;
         }
 
-        if (_cachedPlayerStats.Points != _lastPoints)
+        if (GetCurrentPoints() != _lastPoints)
         {
             changed = true;
         }
@@ -97,6 +108,24 @@ public class PlayerUI : NetworkBehaviour
         {
             _cachedPlayerStats = GetComponent<PlayerStats>();
         }
+    }
+
+    private void TryCachePlayerPoints()
+    {
+        if (_cachedPlayerPoints == null)
+        {
+            _cachedPlayerPoints = GetComponent<PlayerPoints>();
+        }
+    }
+
+    private int GetCurrentPoints()
+    {
+        if (_cachedPlayerPoints != null)
+        {
+            return _cachedPlayerPoints.TotalPoints;
+        }
+
+        return _cachedPlayerStats != null ? _cachedPlayerStats.Points : 0;
     }
 
     private void CreateDefaultUIIfMissing()
@@ -166,7 +195,7 @@ public class PlayerUI : NetworkBehaviour
             pointsText.fontStyle = FontStyles.Bold;
             pointsText.color = new Color(1f, 0.9f, 0.3f, 1f);
             pointsText.alignment = TextAlignmentOptions.TopRight;
-            pointsText.text = "Points: 0";
+            pointsText.text = "Points: 500";
         }
 
         if (killsText == null)
@@ -298,10 +327,11 @@ public class PlayerUI : NetworkBehaviour
 
         if (pointsText != null)
         {
-            if (force || _cachedPlayerStats.Points != _lastPoints)
+            int currentPoints = GetCurrentPoints();
+            if (force || currentPoints != _lastPoints)
             {
-                pointsText.text = $"Points: {_cachedPlayerStats.Points}";
-                _lastPoints = _cachedPlayerStats.Points;
+                pointsText.text = $"Points: {currentPoints}";
+                _lastPoints = currentPoints;
             }
         }
 

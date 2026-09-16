@@ -108,13 +108,12 @@ public class WeaponWallBuy : NetworkBehaviour
             return;
         }
 
-        if (_localPlayerStats.Points < weaponCost)
+        if (_localPlayerStats.TrySpendPoints(weaponCost) == false)
         {
             Debug.Log($"Not enough points. Need {weaponCost}, have {_localPlayerStats.Points}.");
             return;
         }
 
-        _localPlayerStats.Points -= weaponCost;
         _localPlayerWeapon.UpgradeWeapon();
         Debug.Log($"{_localPlayerStats.name} bought weapon upgrade for {weaponCost}. Remaining: {_localPlayerStats.Points}");
 

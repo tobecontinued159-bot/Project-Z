@@ -65,7 +65,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Points:0
+  m_text: 'Points: 500'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
@@ -289,6 +289,7 @@ GameObject:
   - component: {fileID: 2164364016865855315}
   - component: {fileID: 5022703181727355495}
   - component: {fileID: 8889690019590516847}
+  - component: {fileID: 6129384750193847561}
   m_Layer: 0
   m_Name: PlayerPrefab
   m_TagString: Player
@@ -410,6 +411,7 @@ MonoBehaviour:
   - {fileID: 2628309140438125782}
   - {fileID: 5022703181727355495}
   - {fileID: 8889690019590516847}
+  - {fileID: 6129384750193847561}
   ForceRemoteRenderTimeframe: 0
 --- !u!114 &3942446720850029842
 MonoBehaviour:
@@ -559,7 +561,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eb7b6484b25d7b646a00fb7abf262fec, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _Points: 0
   _Kills: 0
   _Health: 0
   _IsDead:
@@ -703,6 +704,20 @@ MonoBehaviour:
   healthFillImage: {fileID: 0}
   killsText: {fileID: 0}
   respawnText: {fileID: 0}
+--- !u!114 &6129384750193847561
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5976126117437612158}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7e4c9a12b8d046f3a61c0e59d2f47b80, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _TotalPoints: 500
+  pointsUIText: {fileID: 8295211380229392817}
 --- !u!1 &8374228758162953937
 GameObject:
   m_ObjectHideFlags: 0

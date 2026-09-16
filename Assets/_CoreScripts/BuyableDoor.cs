@@ -99,13 +99,12 @@ public class BuyableDoor : NetworkBehaviour
             return;
         }
 
-        if (purchasingPlayer.Points < doorCost)
+        if (purchasingPlayer.TrySpendPoints(doorCost) == false)
         {
             Debug.Log($"Not enough points to open {name}. Need {doorCost}, have {purchasingPlayer.Points}.");
             return;
         }
 
-        purchasingPlayer.Points -= doorCost;
         Debug.Log($"{purchasingPlayer.name} spent {doorCost} points. Remaining: {purchasingPlayer.Points}");
         RPC_RequestOpenDoor();
     }
