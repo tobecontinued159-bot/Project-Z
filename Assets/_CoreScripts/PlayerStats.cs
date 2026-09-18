@@ -4,8 +4,14 @@ using UnityEngine;
 public class PlayerStats : NetworkBehaviour
 {
     [Networked] public int Kills { get; set; }
-    [Networked] public int Health { get; set; }
-    [Networked] public NetworkBool IsDead { get; set; }
+
+    [Networked]
+    [OnChangedRender(nameof(OnHealthChanged))]
+    public int Health { get; set; }
+
+    [Networked]
+    [OnChangedRender(nameof(OnHealthChanged))]
+    public NetworkBool IsDead { get; set; }
     [Networked] private TickTimer RespawnTimer { get; set; }
 
     [Header("Survival Settings")]
@@ -13,7 +19,7 @@ public class PlayerStats : NetworkBehaviour
     [SerializeField] private float respawnSeconds = 5f;
 
     [Header("Respawn Settings")]
-    [SerializeField] private Vector3 respawnPosition = new Vector3(0f, 1f, 0f);
+    [SerializeField] private Vector3 fallbackRespawnPosition = new Vector3(0f, 1f, 0f);
 
     private Renderer[] _allRenderers;
     private Collider[] _allColliders;
@@ -48,6 +54,14 @@ public class PlayerStats : NetworkBehaviour
         }
     }
 
+    public int MaxHealth
+    {
+        get
+        {
+            return Mathf.Max(1, startingHealth);
+        }
+    }
+
     public float RemainingRespawnSeconds
     {
         get
@@ -74,6 +88,16 @@ public class PlayerStats : NetworkBehaviour
         }
 
         RefreshVisuals();
+        OnHealthChanged();
+    }
+
+    private void OnHealthChanged()
+    {
+        PlayerUI playerUI = GetComponent<PlayerUI>();
+        if (playerUI != null)
+        {
+            playerUI.RefreshHealthUI();
+        }
     }
 
     public override void FixedUpdateNetwork()
@@ -129,6 +153,35 @@ public class PlayerStats : NetworkBehaviour
         return false;
     }
 
+    public void RegisterKill()
+    {
+        if (Object == null || Object.IsValid == false)
+        {
+            return;
+        }
+
+        if (HasStateAuthority == false)
+        {
+            RPC_RegisterKill();
+            return;
+        }
+
+        Kills++;
+        Debug.Log($"{Object.name} Kills: {Kills}");
+    }
+
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
+    public void RPC_RegisterKill()
+    {
+        if (HasStateAuthority == false)
+        {
+            return;
+        }
+
+        Kills++;
+        Debug.Log($"{Object.name} Kills (RPC): {Kills}");
+    }
+
     public void TakeDamageLocal(int damage)
     {
         if (HasStateAuthority == false)
@@ -180,10 +233,32 @@ public class PlayerStats : NetworkBehaviour
         Health = startingHealth;
         IsDead = false;
         RespawnTimer = TickTimer.None;
-        transform.position = respawnPosition;
-        transform.rotation = Quaternion.identity;
 
-        Debug.Log($"{Object.name} RESPAWNED at {respawnPosition}");
+        GetRespawnPose(out Vector3 spawnPosition, out Quaternion spawnRotation);
+        transform.position = spawnPosition;
+        transform.rotation = spawnRotation;
+
+        Debug.Log($"{Object.name} RESPAWNED at {spawnPosition}");
+    }
+
+    private void GetRespawnPose(out Vector3 spawnPosition, out Quaternion spawnRotation)
+    {
+        spawnPosition = fallbackRespawnPosition;
+        spawnRotation = Quaternion.identity;
+
+        NetworkPlayerSpawner spawner = NetworkPlayerSpawner.Instance;
+        if (spawner == null)
+        {
+            spawner = FindFirstObjectByType<NetworkPlayerSpawner>();
+        }
+
+        if (spawner == null || spawner.spawnPoint == null)
+        {
+            return;
+        }
+
+        spawnPosition = spawner.spawnPoint.position;
+        spawnRotation = spawner.spawnPoint.rotation;
     }
 
     public void Heal(int amount)

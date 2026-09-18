@@ -21,24 +21,54 @@ public class PlayerUI : NetworkBehaviour
     private int _lastKills = -1;
     private bool _lastIsDead = false;
     private float _lastRespawnSeconds = -1f;
+    private const string HealthFillObjectName = "Image";
 
     public override void Spawned()
     {
-        if (Object.HasInputAuthority == false)
+        TryCachePlayerStats();
+        TryCachePlayerPoints();
+
+        if (IsLocalPlayer == false)
         {
-            enabled = false;
             return;
         }
 
-        TryCachePlayerStats();
-        TryCachePlayerPoints();
+        TryBindHealthFillImage();
         CreateDefaultUIIfMissing();
+        BindOverlayHealthHud();
+        RefreshHealthUI();
         RefreshUI(force: true);
+    }
+
+    public override void Render()
+    {
+        if (Object == null || Object.IsValid == false || IsLocalPlayer == false)
+        {
+            return;
+        }
+
+        if (_cachedPlayerStats == null)
+        {
+            TryCachePlayerStats();
+        }
+
+        if (_cachedPlayerPoints == null)
+        {
+            TryCachePlayerPoints();
+        }
+
+        if (_cachedPlayerStats == null)
+        {
+            return;
+        }
+
+        RefreshHealthUI();
+        RefreshUI(force: false);
     }
 
     private void LateUpdate()
     {
-        if (Object.HasInputAuthority == false)
+        if (Object == null || Object.IsValid == false || IsLocalPlayer == false)
         {
             return;
         }
@@ -118,6 +148,139 @@ public class PlayerUI : NetworkBehaviour
         }
     }
 
+    private bool IsLocalPlayer
+    {
+        get
+        {
+            return Object != null && Object.IsValid && (HasInputAuthority || HasStateAuthority);
+        }
+    }
+
+    private void TryBindHealthFillImage()
+    {
+        GameObject healthFillObject = GameObject.Find(HealthFillObjectName);
+        if (healthFillObject == null)
+        {
+            healthFillObject = GameObject.Find("HealthFill");
+        }
+
+        if (healthFillObject == null)
+        {
+            healthFillObject = GameObject.Find("Fill");
+        }
+
+        if (healthFillObject == null)
+        {
+            Debug.LogWarning($"PlayerUI: Could not find health fill object '{HealthFillObjectName}'.");
+            return;
+        }
+
+        Image foundFill = healthFillObject.GetComponent<UnityEngine.UI.Image>();
+        if (foundFill == null)
+        {
+            Debug.LogWarning($"PlayerUI: '{healthFillObject.name}' has no UnityEngine.UI.Image component.");
+            return;
+        }
+
+        healthFillImage = foundFill;
+        healthFillImage.type = Image.Type.Filled;
+        healthFillImage.fillMethod = Image.FillMethod.Horizontal;
+    }
+
+    public void RefreshHealthUI()
+    {
+        if (IsLocalPlayer == false)
+        {
+            return;
+        }
+
+        if (_cachedPlayerStats == null)
+        {
+            TryCachePlayerStats();
+        }
+
+        if (_cachedPlayerStats == null)
+        {
+            return;
+        }
+
+        if (healthFillImage == null)
+        {
+            TryBindHealthFillImage();
+        }
+
+        BindOverlayHealthHud();
+
+        int currentHealth = _cachedPlayerStats.Health;
+        bool isDead = _cachedPlayerStats.IsDead;
+
+        if (healthText != null)
+        {
+            healthText.text = isDead ? "DEAD" : $"Health: {currentHealth}";
+        }
+
+        if (healthFillImage != null)
+        {
+            healthFillImage.type = Image.Type.Filled;
+            healthFillImage.fillMethod = Image.FillMethod.Horizontal;
+            float healthPct = isDead ? 0f : Mathf.Clamp01((float)currentHealth / _cachedPlayerStats.MaxHealth);
+            healthFillImage.fillAmount = healthPct;
+        }
+
+        _lastHealth = currentHealth;
+        _lastIsDead = isDead;
+    }
+
+    private void BindOverlayHealthHud()
+    {
+        GameObject hudCanvasGo = GameObject.Find("HUD_Canvas");
+        if (hudCanvasGo == null)
+        {
+            if (healthText == null || healthFillImage == null)
+            {
+                CreateDefaultUIIfMissing();
+            }
+            return;
+        }
+
+        if (healthText == null || IsWorldSpace(healthText))
+        {
+            Transform overlayHealth = hudCanvasGo.transform.Find("HealthText");
+            if (overlayHealth != null)
+            {
+                TMP_Text overlayText = overlayHealth.GetComponent<TMP_Text>();
+                if (overlayText != null)
+                {
+                    healthText = overlayText;
+                }
+            }
+        }
+
+        if (healthFillImage == null)
+        {
+            Transform overlayFill = hudCanvasGo.transform.Find("HealthFill");
+            if (overlayFill != null)
+            {
+                Image overlayImage = overlayFill.GetComponent<Image>();
+                if (overlayImage != null)
+                {
+                    healthFillImage = overlayImage;
+                }
+            }
+        }
+    }
+
+    private static bool IsWorldSpace(TMP_Text text)
+    {
+        if (text == null)
+        {
+            return false;
+        }
+
+        Canvas canvas = text.GetComponentInParent<Canvas>();
+        return canvas != null && canvas.renderMode == RenderMode.WorldSpace;
+    }
+
     private int GetCurrentPoints()
     {
         if (_cachedPlayerPoints != null)
@@ -130,7 +293,7 @@ public class PlayerUI : NetworkBehaviour
 
     private void CreateDefaultUIIfMissing()
     {
-        if (healthText == null || pointsText == null || respawnText == null)
+        if (healthText == null || pointsText == null || respawnText == null || killsText == null || healthFillImage == null || IsWorldSpace(healthText))
         {
             FindOrCreateHUD();
         }
@@ -160,23 +323,35 @@ public class PlayerUI : NetworkBehaviour
 
         Transform root = hudCanvasGo.transform;
 
-        if (healthText == null)
+        if (healthText == null || IsWorldSpace(healthText))
         {
-            GameObject healthGo = new GameObject("HealthText", typeof(RectTransform));
-            healthGo.transform.SetParent(root, false);
-            RectTransform rt = healthGo.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0, 1);
-            rt.anchorMax = new Vector2(0, 1);
-            rt.pivot = new Vector2(0, 1);
-            rt.anchoredPosition = new Vector2(20, -20);
-            rt.sizeDelta = new Vector2(400, 60);
+            Transform existingHealth = root.Find("HealthText");
+            if (existingHealth != null)
+            {
+                TMP_Text overlayText = existingHealth.GetComponent<TMP_Text>();
+                if (overlayText != null)
+                {
+                    healthText = overlayText;
+                }
+            }
+            else
+            {
+                GameObject healthGo = new GameObject("HealthText", typeof(RectTransform));
+                healthGo.transform.SetParent(root, false);
+                RectTransform rt = healthGo.GetComponent<RectTransform>();
+                rt.anchorMin = new Vector2(0, 1);
+                rt.anchorMax = new Vector2(0, 1);
+                rt.pivot = new Vector2(0, 1);
+                rt.anchoredPosition = new Vector2(20, -20);
+                rt.sizeDelta = new Vector2(400, 60);
 
-            healthText = healthGo.AddComponent<TextMeshProUGUI>();
-            healthText.fontSize = 36;
-            healthText.fontStyle = FontStyles.Bold;
-            healthText.color = new Color(1f, 0.3f, 0.3f, 1f);
-            healthText.alignment = TextAlignmentOptions.TopLeft;
-            healthText.text = "Health: 100";
+                healthText = healthGo.AddComponent<TextMeshProUGUI>();
+                healthText.fontSize = 36;
+                healthText.fontStyle = FontStyles.Bold;
+                healthText.color = new Color(1f, 0.3f, 0.3f, 1f);
+                healthText.alignment = TextAlignmentOptions.TopLeft;
+                healthText.text = "Health: 100";
+            }
         }
 
         if (pointsText == null)
@@ -276,20 +451,11 @@ public class PlayerUI : NetworkBehaviour
             return;
         }
 
-        if (_cachedPlayerStats.IsDead)
+        RefreshHealthUI();
+
+        if (respawnText != null)
         {
-            if (healthText != null)
-            {
-                healthText.text = "DEAD";
-                _lastHealth = 0;
-            }
-
-            if (healthFillImage != null)
-            {
-                healthFillImage.fillAmount = 0f;
-            }
-
-            if (respawnText != null)
+            if (_cachedPlayerStats.IsDead)
             {
                 respawnText.enabled = true;
                 float remain = Mathf.Ceil(_cachedPlayerStats.RemainingRespawnSeconds);
@@ -300,28 +466,10 @@ public class PlayerUI : NetworkBehaviour
                 respawnText.text = $"RESPAWNING IN {remain:0}...";
                 _lastRespawnSeconds = remain;
             }
-        }
-        else
-        {
-            if (respawnText != null)
+            else
             {
                 respawnText.enabled = false;
                 _lastRespawnSeconds = -1f;
-            }
-
-            if (healthText != null)
-            {
-                if (force || _cachedPlayerStats.Health != _lastHealth)
-                {
-                    healthText.text = $"Health: {_cachedPlayerStats.Health}";
-                    _lastHealth = _cachedPlayerStats.Health;
-
-                    if (healthFillImage != null)
-                    {
-                        float healthPct = Mathf.Clamp01(_cachedPlayerStats.Health / 100f);
-                        healthFillImage.fillAmount = healthPct;
-                    }
-                }
             }
         }
 

@@ -5,26 +5,33 @@ using UnityEngine;
 public class PlayerPoints : NetworkBehaviour
 {
     private const int StartingPoints = 500;
+    private const string PointsUiObjectName = "Text (TMP)";
 
     [Networked]
     public int TotalPoints { get; set; } = StartingPoints;
 
-    public TMP_Text pointsUIText;
-
+    private TextMeshProUGUI _pointsUIText;
     private int _lastDisplayedPoints = int.MinValue;
 
     public override void Spawned()
     {
-        if (HasStateAuthority)
+        if (HasStateAuthority == false)
         {
-            TotalPoints = StartingPoints;
+            return;
         }
 
-        TryBindPointsUI();
+        TotalPoints = StartingPoints;
 
-        if (IsLocalPlayer == false && pointsUIText != null)
+        GameObject pointsObject = GameObject.Find(PointsUiObjectName);
+        if (pointsObject != null)
         {
-            pointsUIText.enabled = false;
+            _pointsUIText = pointsObject.GetComponent<TextMeshProUGUI>();
+        }
+
+        if (_pointsUIText == null)
+        {
+            Debug.LogWarning($"PlayerPoints: Could not find UI object '{PointsUiObjectName}'.");
+            return;
         }
 
         RefreshPointsUI(force: true);
@@ -32,7 +39,7 @@ public class PlayerPoints : NetworkBehaviour
 
     public override void Render()
     {
-        if (IsLocalPlayer == false)
+        if (HasStateAuthority == false)
         {
             return;
         }
@@ -93,35 +100,9 @@ public class PlayerPoints : NetworkBehaviour
         TotalPoints += amount;
     }
 
-    private bool IsLocalPlayer
-    {
-        get
-        {
-            return Object != null && Object.IsValid && HasInputAuthority;
-        }
-    }
-
-    private void TryBindPointsUI()
-    {
-        if (pointsUIText != null)
-        {
-            return;
-        }
-
-        TMP_Text[] texts = GetComponentsInChildren<TMP_Text>(true);
-        for (int i = 0; i < texts.Length; i++)
-        {
-            if (texts[i] != null && texts[i].name == "PointsText")
-            {
-                pointsUIText = texts[i];
-                return;
-            }
-        }
-    }
-
     private void RefreshPointsUI(bool force)
     {
-        if (IsLocalPlayer == false || pointsUIText == null)
+        if (HasStateAuthority == false || _pointsUIText == null)
         {
             return;
         }
@@ -131,7 +112,7 @@ public class PlayerPoints : NetworkBehaviour
             return;
         }
 
-        pointsUIText.text = $"Points: {TotalPoints}";
+        _pointsUIText.text = $"Points: {TotalPoints}";
         _lastDisplayedPoints = TotalPoints;
     }
 }

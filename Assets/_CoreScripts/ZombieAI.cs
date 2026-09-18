@@ -117,12 +117,6 @@ public class ZombieAI : NetworkBehaviour
             return;
         }
 
-        if (NetworkPlayerSpawner.AllPlayers == null || NetworkPlayerSpawner.AllPlayers.Count == 0)
-        {
-            Debug.LogWarning("ZombieAI: Cannot award points, AllPlayers list is empty.");
-            return;
-        }
-
         PlayerStats attackerStats = FindAttackerStats(attackerPlayerRef);
 
         if (attackerStats == null)
@@ -134,26 +128,46 @@ public class ZombieAI : NetworkBehaviour
         if (attackerStats.HasStateAuthority)
         {
             attackerStats.AddPointsLocal(killPoints);
+            attackerStats.RegisterKill();
         }
         else
         {
             attackerStats.RPC_AddPoints(killPoints);
+            attackerStats.RPC_RegisterKill();
         }
     }
 
     private PlayerStats FindAttackerStats(PlayerRef attackerPlayerRef)
     {
-        for (int i = 0; i < NetworkPlayerSpawner.AllPlayers.Count; i++)
+        if (NetworkPlayerSpawner.AllPlayers != null)
         {
-            NetworkObject playerNo = NetworkPlayerSpawner.AllPlayers[i];
-            if (playerNo == null)
+            for (int i = 0; i < NetworkPlayerSpawner.AllPlayers.Count; i++)
+            {
+                NetworkObject playerNo = NetworkPlayerSpawner.AllPlayers[i];
+                if (playerNo == null)
+                {
+                    continue;
+                }
+
+                if (playerNo.InputAuthority == attackerPlayerRef)
+                {
+                    return playerNo.GetComponent<PlayerStats>();
+                }
+            }
+        }
+
+        PlayerStats[] allStats = FindObjectsByType<PlayerStats>(FindObjectsSortMode.None);
+        for (int i = 0; i < allStats.Length; i++)
+        {
+            PlayerStats stats = allStats[i];
+            if (stats == null || stats.Object == null || stats.Object.IsValid == false)
             {
                 continue;
             }
 
-            if (playerNo.InputAuthority == attackerPlayerRef)
+            if (stats.Object.InputAuthority == attackerPlayerRef)
             {
-                return playerNo.GetComponent<PlayerStats>();
+                return stats;
             }
         }
 
