@@ -33,6 +33,12 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
     private void Update()
     {
+        if (PlayerInputLock.IsTerminalOpen)
+        {
+            _fireRequestPending = false;
+            return;
+        }
+
         if (Input.GetButtonDown("Fire1"))
         {
             _fireRequestPending = true;
@@ -198,6 +204,16 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
     public void OnInput(NetworkRunner runner, NetworkInput input)
     {
+        if (PlayerInputLock.IsTerminalOpen)
+        {
+            PlayerInput lockedInput = new PlayerInput();
+            lockedInput.MoveInput = Vector2.zero;
+            lockedInput.FirePressed = false;
+            input.Set(lockedInput);
+            _fireRequestPending = false;
+            return;
+        }
+
         if (_cachedMainCamera == null)
         {
             _cachedMainCamera = Camera.main;

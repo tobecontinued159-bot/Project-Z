@@ -15,6 +15,11 @@ public class PlayerController : NetworkBehaviour
             return;
         }
 
+        if (HasInputAuthority && PlayerInputLock.IsTerminalOpen)
+        {
+            return;
+        }
+
         if (GetInput(out PlayerInput input) == false)
         {
             return;

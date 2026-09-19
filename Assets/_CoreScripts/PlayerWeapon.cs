@@ -83,12 +83,22 @@ public class PlayerWeapon : NetworkBehaviour
             return;
         }
 
+        if (HasInputAuthority && PlayerInputLock.IsTerminalOpen)
+        {
+            return;
+        }
+
         Fire(applyDamage: false);
     }
 
     public override void FixedUpdateNetwork()
     {
         if (EnsureStats() && _cachedStats.IsDead)
+        {
+            return;
+        }
+
+        if (HasInputAuthority && PlayerInputLock.IsTerminalOpen)
         {
             return;
         }
