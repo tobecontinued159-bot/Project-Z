@@ -17,8 +17,15 @@ public class PlayerWeapon : NetworkBehaviour
     [SerializeField] private float upgradeFireRateMultiplier = 0.7f;
     [SerializeField] private float minFireRate = 0.08f;
 
+    [Header("Ammo")]
+    [SerializeField] private int maxAmmo = 30;
+
     [Networked] public int Damage { get; set; }
     [Networked] public float FireRate { get; set; }
+    [Networked] public int CurrentAmmo { get; set; }
+    [Networked] private NetworkBool DamageBuffActive { get; set; }
+    [Networked] private TickTimer DamageBuffTimer { get; set; }
+    [Networked] private int UnbuffedDamage { get; set; }
 
     [Header("Laser Sight")]
     [SerializeField] private float laserWidth = 0.03f;
@@ -40,6 +47,10 @@ public class PlayerWeapon : NetworkBehaviour
         {
             Damage = damage;
             FireRate = fireRate;
+            CurrentAmmo = maxAmmo;
+            DamageBuffActive = false;
+            DamageBuffTimer = TickTimer.None;
+            UnbuffedDamage = damage;
         }
     }
 
@@ -72,6 +83,84 @@ public class PlayerWeapon : NetworkBehaviour
         Debug.Log($"{name} upgraded weapon. Damage: {Damage}, FireRate: {FireRate:0.00}");
     }
 
+    public void RefillAmmo()
+    {
+        if (HasStateAuthority == false)
+        {
+            RPC_RequestRefillAmmo();
+            return;
+        }
+
+        CurrentAmmo = Mathf.Max(1, maxAmmo);
+        Debug.Log($"{name} ammo refilled: {CurrentAmmo}");
+    }
+
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
+    private void RPC_RequestRefillAmmo()
+    {
+        if (HasStateAuthority == false)
+        {
+            return;
+        }
+
+        CurrentAmmo = Mathf.Max(1, maxAmmo);
+        Debug.Log($"{name} ammo refilled (RPC): {CurrentAmmo}");
+    }
+
+    public void ApplyDamageBuff(float duration, int multiplier)
+    {
+        if (HasStateAuthority == false)
+        {
+            RPC_RequestDamageBuff(duration, multiplier);
+            return;
+        }
+
+        ApplyDamageBuffLocal(duration, multiplier);
+    }
+
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
+    private void RPC_RequestDamageBuff(float duration, int multiplier)
+    {
+        if (HasStateAuthority == false)
+        {
+            return;
+        }
+
+        ApplyDamageBuffLocal(duration, multiplier);
+    }
+
+    private void ApplyDamageBuffLocal(float duration, int multiplier)
+    {
+        int safeMultiplier = Mathf.Max(1, multiplier);
+        if (DamageBuffActive == false)
+        {
+            UnbuffedDamage = Damage > 0 ? Damage : damage;
+            Damage = UnbuffedDamage * safeMultiplier;
+            DamageBuffActive = true;
+        }
+
+        DamageBuffTimer = TickTimer.CreateFromSeconds(Runner, duration);
+        Debug.Log($"{name} damage buff x{safeMultiplier} for {duration:0}s. Damage: {Damage}");
+    }
+
+    private void TickDamageBuff()
+    {
+        if (HasStateAuthority == false || DamageBuffActive == false)
+        {
+            return;
+        }
+
+        if (DamageBuffTimer.Expired(Runner) == false)
+        {
+            return;
+        }
+
+        Damage = UnbuffedDamage > 0 ? UnbuffedDamage : damage;
+        DamageBuffActive = false;
+        DamageBuffTimer = TickTimer.None;
+        Debug.Log($"{name} damage buff ended. Damage: {Damage}");
+    }
+
     private void LateUpdate()
     {
         if (EnsureStats() && _cachedStats.IsDead)
@@ -98,6 +187,8 @@ public class PlayerWeapon : NetworkBehaviour
             return;
         }
 
+        TickDamageBuff();
+
         if (HasInputAuthority && PlayerInputLock.IsTerminalOpen)
         {
             return;
@@ -118,7 +209,17 @@ public class PlayerWeapon : NetworkBehaviour
             return;
         }
 
+        if (CurrentAmmo <= 0)
+        {
+            return;
+        }
+
         Fire(applyDamage: true);
+        if (HasStateAuthority)
+        {
+            CurrentAmmo = Mathf.Max(0, CurrentAmmo - 1);
+        }
+
         float currentFireRate = FireRate > 0f ? FireRate : fireRate;
         FireCooldown = TickTimer.CreateFromSeconds(Runner, currentFireRate);
     }

@@ -280,6 +280,19 @@ public class ZombieAI : NetworkBehaviour
         Debug.Log($"{name} attacked player! Damage: {attackDamage}");
     }
 
+    public bool ForceKill()
+    {
+        if (Object == null || Object.IsValid == false || HasStateAuthority == false || IsDead)
+        {
+            return false;
+        }
+
+        IsDead = true;
+        NotifyWaveManager();
+        Runner.Despawn(Object);
+        return true;
+    }
+
     private void NotifyWaveManager()
     {
         if (WaveManager.Instance != null)

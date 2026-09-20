@@ -59,6 +59,15 @@ public class TerminalHacker : MonoBehaviour
 
         if (submittedText == _currentCommand)
         {
+            if (TerminalBuffManager.Instance != null)
+            {
+                TerminalBuffManager.Instance.ExecuteCommand(_currentCommand);
+            }
+            else
+            {
+                Debug.LogWarning("TerminalHacker: TerminalBuffManager is missing from the scene.");
+            }
+
             OnHackSuccess.Invoke();
             gameObject.SetActive(false);
             return;
