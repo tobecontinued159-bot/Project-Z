@@ -1,5 +1,6 @@
 using Fusion;
 using UnityEngine;
+using UnityEngine.AI;
 
 public class WaveManager : NetworkBehaviour
 {
@@ -33,13 +34,24 @@ public class WaveManager : NetworkBehaviour
         CurrentWave = 0;
         ZombiesRemaining = 0;
         ZombiesLeftToSpawn = 0;
+
         IsBreakTime = true;
-        BreakTimer = TickTimer.CreateFromSeconds(Runner, breakDuration);
+
+        BreakTimer = TickTimer.CreateFromSeconds(
+            Runner,
+            breakDuration
+        );
+
         SpawnTimer = TickTimer.None;
-        Debug.Log($"WaveManager: Break time started ({breakDuration}s).");
+
+        Debug.Log(
+            $"WaveManager: Break time started ({breakDuration}s)."
+        );
     }
 
-    public override void Despawned(NetworkRunner runner, bool hasState)
+    public override void Despawned(
+        NetworkRunner runner,
+        bool hasState)
     {
         if (Instance == this)
         {
@@ -54,27 +66,65 @@ public class WaveManager : NetworkBehaviour
             return;
         }
 
+        // ================================
+        // BREAK TIME
+        // ================================
+
         if (IsBreakTime)
         {
             if (BreakTimer.Expired(Runner))
             {
                 StartNextWave();
             }
+
             return;
         }
 
-        if (ZombiesLeftToSpawn > 0 && SpawnTimer.ExpiredOrNotRunning(Runner))
+        // ================================
+        // SPAWN ZOMBIES
+        // ================================
+
+        if (ZombiesLeftToSpawn > 0 &&
+            SpawnTimer.ExpiredOrNotRunning(Runner))
         {
-            SpawnOneZombie();
-            ZombiesLeftToSpawn--;
-            SpawnTimer = TickTimer.CreateFromSeconds(Runner, spawnInterval);
+            bool spawned = SpawnOneZombie();
+
+            // ลดจำนวนเฉพาะตอน Spawn สำเร็จ
+            if (spawned)
+            {
+                ZombiesLeftToSpawn--;
+
+                SpawnTimer = TickTimer.CreateFromSeconds(
+                    Runner,
+                    spawnInterval
+                );
+            }
+            else
+            {
+                // ถ้า Spawn ไม่สำเร็จ
+                // ลองใหม่ใน Tick ถัดไป
+                SpawnTimer = TickTimer.CreateFromSeconds(
+                    Runner,
+                    0.25f
+                );
+            }
         }
 
-        if (CurrentWave > 0 && ZombiesLeftToSpawn <= 0 && ZombiesRemaining <= 0)
+        // ================================
+        // WAVE COMPLETE
+        // ================================
+
+        if (CurrentWave > 0 &&
+            ZombiesLeftToSpawn <= 0 &&
+            ZombiesRemaining <= 0)
         {
             StartBreakTime();
         }
     }
+
+    // =========================================================
+    // ZOMBIE DIED
+    // =========================================================
 
     public void OnZombieDied()
     {
@@ -87,7 +137,11 @@ public class WaveManager : NetworkBehaviour
         RPC_NotifyZombieDied();
     }
 
-    [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
+    [Rpc(
+        RpcSources.All,
+        RpcTargets.StateAuthority,
+        Channel = RpcChannel.Reliable
+    )]
     private void RPC_NotifyZombieDied()
     {
         if (HasStateAuthority == false)
@@ -100,56 +154,168 @@ public class WaveManager : NetworkBehaviour
 
     private void ApplyZombieDied()
     {
-        ZombiesRemaining = Mathf.Max(0, ZombiesRemaining - 1);
-        Debug.Log($"Wave {CurrentWave}: zombie died. Remaining: {ZombiesRemaining}");
+        ZombiesRemaining = Mathf.Max(
+            0,
+            ZombiesRemaining - 1
+        );
+
+        Debug.Log(
+            $"Wave {CurrentWave}: zombie died. " +
+            $"Remaining: {ZombiesRemaining}"
+        );
     }
+
+    // =========================================================
+    // START NEXT WAVE
+    // =========================================================
 
     private void StartNextWave()
     {
         CurrentWave++;
-        int zombieCount = CurrentWave * zombiesPerWave;
+
+        int zombieCount =
+            CurrentWave * zombiesPerWave;
+
         ZombiesRemaining = zombieCount;
         ZombiesLeftToSpawn = zombieCount;
+
         IsBreakTime = false;
         SpawnTimer = TickTimer.None;
-        Debug.Log($"Wave {CurrentWave} started. Zombies: {zombieCount}");
+
+        Debug.Log(
+            $"Wave {CurrentWave} started. " +
+            $"Zombies: {zombieCount}"
+        );
     }
+
+    // =========================================================
+    // START BREAK
+    // =========================================================
 
     private void StartBreakTime()
     {
         IsBreakTime = true;
-        BreakTimer = TickTimer.CreateFromSeconds(Runner, breakDuration);
+
+        BreakTimer = TickTimer.CreateFromSeconds(
+            Runner,
+            breakDuration
+        );
+
         SpawnTimer = TickTimer.None;
-        Debug.Log($"Wave {CurrentWave} cleared. Break time ({breakDuration}s).");
+
+        Debug.Log(
+            $"Wave {CurrentWave} cleared. " +
+            $"Break time ({breakDuration}s)."
+        );
     }
 
-    private void SpawnOneZombie()
+    // =========================================================
+    // SPAWN ZOMBIE
+    // =========================================================
+
+    private bool SpawnOneZombie()
     {
-        if (zombiePrefab == null)
-        {
-            Debug.LogError("WaveManager: zombiePrefab is not assigned.");
-            return;
-        }
+        // -----------------------------------------
+        // 1. Get random spawn point
+        // -----------------------------------------
 
         Transform spawnPoint = GetRandomSpawnPoint();
-        Vector3 position = spawnPoint != null ? spawnPoint.position : transform.position;
-        Quaternion rotation = spawnPoint != null ? spawnPoint.rotation : Quaternion.identity;
 
-        NetworkObject zombie = Runner.Spawn(zombiePrefab, position, rotation);
+        if (spawnPoint == null)
+        {
+            Debug.LogError(
+                "[WaveManager] No valid zombie spawn point found."
+            );
+
+            return false;
+        }
+
+        Vector3 spawnPosition = spawnPoint.position;
+
+        // -----------------------------------------
+        // 2. Find nearest NavMesh position
+        // -----------------------------------------
+
+        if (!TryGetNavMeshPosition(
+            spawnPosition,
+            out Vector3 validPosition))
+        {
+            Debug.LogError(
+                $"[WaveManager] Cannot spawn Zombie. " +
+                $"Spawn point '{spawnPoint.name}' " +
+                $"is not near NavMesh. " +
+                $"Position = {spawnPosition}"
+            );
+
+            return false;
+        }
+
+        // -----------------------------------------
+        // 3. Spawn through Fusion
+        // -----------------------------------------
+
+        NetworkObject zombie = Runner.Spawn(
+            zombiePrefab,
+            validPosition,
+            Quaternion.identity
+        );
+
         if (zombie == null)
         {
-            Debug.LogError("WaveManager: Runner.Spawn returned null. Bake the zombie prefab as a NetworkObject.");
+            Debug.LogError(
+                "[WaveManager] Runner.Spawn returned null. " +
+                "Check that the zombie prefab is registered " +
+                "as a NetworkObject."
+            );
+
+            return false;
         }
+
+        Debug.Log(
+            $"[WaveManager] Zombie spawned. " +
+            $"SpawnPoint={spawnPoint.name} | " +
+            $"Position={validPosition}"
+        );
+
+        return true;
     }
+
+    // =========================================================
+    // NAVMESH POSITION
+    // =========================================================
+
+    private bool TryGetNavMeshPosition(
+        Vector3 sourcePosition,
+        out Vector3 navMeshPosition)
+    {
+        if (NavMesh.SamplePosition(
+            sourcePosition,
+            out NavMeshHit hit,
+            3f,
+            NavMesh.AllAreas))
+        {
+            navMeshPosition = hit.position;
+            return true;
+        }
+
+        navMeshPosition = sourcePosition;
+        return false;
+    }
+
+    // =========================================================
+    // RANDOM SPAWN POINT
+    // =========================================================
 
     private Transform GetRandomSpawnPoint()
     {
-        if (spawnPoints == null || spawnPoints.Length == 0)
+        if (spawnPoints == null ||
+            spawnPoints.Length == 0)
         {
             return null;
         }
 
         int validCount = 0;
+
         for (int i = 0; i < spawnPoints.Length; i++)
         {
             if (spawnPoints[i] != null)
@@ -163,7 +329,9 @@ public class WaveManager : NetworkBehaviour
             return null;
         }
 
-        int targetIndex = Random.Range(0, validCount);
+        int targetIndex =
+            Random.Range(0, validCount);
+
         for (int i = 0; i < spawnPoints.Length; i++)
         {
             if (spawnPoints[i] == null)
