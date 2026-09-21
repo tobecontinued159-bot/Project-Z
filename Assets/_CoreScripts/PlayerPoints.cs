@@ -1,17 +1,12 @@
 using Fusion;
-using TMPro;
 using UnityEngine;
 
 public class PlayerPoints : NetworkBehaviour
 {
     private const int StartingPoints = 500;
-    private const string PointsUiObjectName = "Text (TMP)";
 
     [Networked]
     public int TotalPoints { get; set; } = StartingPoints;
-
-    private TextMeshProUGUI _pointsUIText;
-    private int _lastDisplayedPoints = int.MinValue;
 
     public override void Spawned()
     {
@@ -21,30 +16,6 @@ public class PlayerPoints : NetworkBehaviour
         }
 
         TotalPoints = StartingPoints;
-
-        GameObject pointsObject = GameObject.Find(PointsUiObjectName);
-        if (pointsObject != null)
-        {
-            _pointsUIText = pointsObject.GetComponent<TextMeshProUGUI>();
-        }
-
-        if (_pointsUIText == null)
-        {
-            Debug.LogWarning($"PlayerPoints: Could not find UI object '{PointsUiObjectName}'.");
-            return;
-        }
-
-        RefreshPointsUI(force: true);
-    }
-
-    public override void Render()
-    {
-        if (HasStateAuthority == false)
-        {
-            return;
-        }
-
-        RefreshPointsUI(force: false);
     }
 
     public void AddPoints(int amount)
@@ -61,6 +32,8 @@ public class PlayerPoints : NetworkBehaviour
         }
 
         TotalPoints += amount;
+
+        Debug.Log($"{Object.name} Points: {TotalPoints}");
     }
 
     public bool TrySpendPoints(int amount)
@@ -86,6 +59,9 @@ public class PlayerPoints : NetworkBehaviour
         }
 
         TotalPoints -= amount;
+
+        Debug.Log($"{Object.name} spent {amount}. Remaining: {TotalPoints}");
+
         return true;
     }
 
@@ -98,21 +74,7 @@ public class PlayerPoints : NetworkBehaviour
         }
 
         TotalPoints += amount;
-    }
 
-    private void RefreshPointsUI(bool force)
-    {
-        if (HasStateAuthority == false || _pointsUIText == null)
-        {
-            return;
-        }
-
-        if (force == false && TotalPoints == _lastDisplayedPoints)
-        {
-            return;
-        }
-
-        _pointsUIText.text = $"Points: {TotalPoints}";
-        _lastDisplayedPoints = TotalPoints;
+        Debug.Log($"{Object.name} Points (RPC): {TotalPoints}");
     }
 }

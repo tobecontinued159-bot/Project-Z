@@ -36,6 +36,9 @@ public class PlayerUI : NetworkBehaviour
         TryBindHealthFillImage();
         CreateDefaultUIIfMissing();
         BindOverlayHealthHud();
+
+        ForceSetupPointsUI();
+
         RefreshHealthUI();
         RefreshUI(force: true);
     }
@@ -66,6 +69,74 @@ public class PlayerUI : NetworkBehaviour
         RefreshUI(force: false);
     }
 
+    private void ForceSetupPointsUI()
+    {
+        if (pointsText == null)
+        {
+            Debug.LogError("[PlayerUI] ForceSetupPointsUI: pointsText is NULL!");
+            return;
+        }
+
+        GameObject hudCanvas = GameObject.Find("HUD_Canvas");
+
+        if (hudCanvas == null)
+        {
+            Debug.LogError("[PlayerUI] ForceSetupPointsUI: HUD_Canvas NOT FOUND!");
+            return;
+        }
+
+        // บังคับให้ PointsText อยู่ใน HUD Canvas
+        pointsText.transform.SetParent(hudCanvas.transform, false);
+
+        RectTransform rt = pointsText.rectTransform;
+
+        // Anchor = มุมขวาบน
+        rt.anchorMin = new Vector2(1f, 1f);
+        rt.anchorMax = new Vector2(1f, 1f);
+        rt.pivot = new Vector2(1f, 1f);
+
+        // ตำแหน่ง
+        rt.anchoredPosition = new Vector2(-20f, -20f);
+
+        // ขนาด
+        rt.sizeDelta = new Vector2(400f, 60f);
+
+        // ป้องกัน Scale เพี้ยน
+        rt.localScale = Vector3.one;
+        rt.localRotation = Quaternion.identity;
+
+        // บังคับให้มองเห็น
+        pointsText.gameObject.SetActive(true);
+        pointsText.enabled = true;
+
+        // Font
+        pointsText.fontSize = 36f;
+        pointsText.fontStyle = FontStyles.Bold;
+
+        // สีขาวแบบเห็นแน่นอน
+        pointsText.color = Color.white;
+        pointsText.alpha = 1f;
+
+        // Alignment
+        pointsText.alignment = TextAlignmentOptions.TopRight;
+
+        // Text
+        pointsText.text = $"Points: {GetCurrentPoints()}";
+
+        // เอาขึ้นมาอยู่ด้านบนสุดของ Canvas
+        pointsText.transform.SetAsLastSibling();
+
+        Canvas.ForceUpdateCanvases();
+
+        Debug.Log(
+            $"[PlayerUI] FORCE POINTS UI | " +
+            $"Parent={pointsText.transform.parent.name} | " +
+            $"Pos={rt.anchoredPosition} | " +
+            $"Size={rt.sizeDelta} | " +
+            $"Color={pointsText.color} | " +
+            $"Text='{pointsText.text}'"
+        );
+    }
     private void LateUpdate()
     {
         if (Object == null || Object.IsValid == false || IsLocalPlayer == false)
@@ -354,11 +425,14 @@ public class PlayerUI : NetworkBehaviour
             }
         }
 
-        if (pointsText == null)
+        if (pointsText == null || pointsText.gameObject.activeInHierarchy == false)
         {
             GameObject pointsGo = new GameObject("PointsText", typeof(RectTransform));
+
             pointsGo.transform.SetParent(root, false);
+
             RectTransform rt = pointsGo.GetComponent<RectTransform>();
+
             rt.anchorMin = new Vector2(1, 1);
             rt.anchorMax = new Vector2(1, 1);
             rt.pivot = new Vector2(1, 1);
@@ -366,11 +440,12 @@ public class PlayerUI : NetworkBehaviour
             rt.sizeDelta = new Vector2(400, 60);
 
             pointsText = pointsGo.AddComponent<TextMeshProUGUI>();
+
             pointsText.fontSize = 36;
             pointsText.fontStyle = FontStyles.Bold;
             pointsText.color = new Color(1f, 0.9f, 0.3f, 1f);
             pointsText.alignment = TextAlignmentOptions.TopRight;
-            pointsText.text = "Points: 500";
+            pointsText.text = $"Points: {GetCurrentPoints()}";
         }
 
         if (killsText == null)
@@ -476,11 +551,18 @@ public class PlayerUI : NetworkBehaviour
         if (pointsText != null)
         {
             int currentPoints = GetCurrentPoints();
-            if (force || currentPoints != _lastPoints)
-            {
-                pointsText.text = $"Points: {currentPoints}";
-                _lastPoints = currentPoints;
-            }
+
+            pointsText.gameObject.SetActive(true);
+            pointsText.enabled = true;
+            pointsText.alpha = 1f;
+
+            pointsText.text = $"Points: {currentPoints}";
+
+            _lastPoints = currentPoints;
+        }
+        else
+        {
+            Debug.LogError("[PlayerUI] pointsText == NULL!");
         }
 
         if (killsText != null)
@@ -493,5 +575,9 @@ public class PlayerUI : NetworkBehaviour
         }
 
         _lastIsDead = _cachedPlayerStats.IsDead;
+
+
     }
 }
+
+
