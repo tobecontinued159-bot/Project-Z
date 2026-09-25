@@ -315,7 +315,7 @@ public class WallBuyInteract : NetworkBehaviour
 
     private bool IsNetworkReady()
     {
-        return Object == null || Object.IsValid;
+        return Object != null && Object.IsValid;
     }
 
     private void ClearLocalPlayer()
