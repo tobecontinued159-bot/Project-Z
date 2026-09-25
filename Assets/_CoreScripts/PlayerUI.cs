@@ -14,11 +14,17 @@ public class PlayerUI : NetworkBehaviour
     [SerializeField] private TMP_Text killsText;
     [SerializeField] private TMP_Text respawnText;
 
+    // [เพิ่มจุดที่ 1]: ตัวแปรสำหรับ Ammo UI
+    [SerializeField] private TMP_Text ammoText;
+
     private PlayerStats _cachedPlayerStats;
     private PlayerPoints _cachedPlayerPoints;
+    private PlayerWeapon _cachedPlayerWeapon; // [เพิ่มจุดที่ 2]: Cache PlayerWeapon Component
+
     private int _lastHealth = -1;
     private int _lastPoints = -1;
     private int _lastKills = -1;
+    private int _lastAmmo = -1; // [เพิ่มจุดที่ 3]: เก็บค่ากระสุนล่าสุด
     private bool _lastIsDead = false;
     private float _lastRespawnSeconds = -1f;
     private const string HealthFillObjectName = "Image";
@@ -27,6 +33,7 @@ public class PlayerUI : NetworkBehaviour
     {
         TryCachePlayerStats();
         TryCachePlayerPoints();
+        TryCachePlayerWeapon(); // [เพิ่มจุดที่ 4]: ดึง Component PlayerWeapon
 
         if (IsLocalPlayer == false)
         {
@@ -50,15 +57,9 @@ public class PlayerUI : NetworkBehaviour
             return;
         }
 
-        if (_cachedPlayerStats == null)
-        {
-            TryCachePlayerStats();
-        }
-
-        if (_cachedPlayerPoints == null)
-        {
-            TryCachePlayerPoints();
-        }
+        if (_cachedPlayerStats == null) TryCachePlayerStats();
+        if (_cachedPlayerPoints == null) TryCachePlayerPoints();
+        if (_cachedPlayerWeapon == null) TryCachePlayerWeapon(); // Cache เพิ่มใน Render
 
         if (_cachedPlayerStats == null)
         {
@@ -85,58 +86,38 @@ public class PlayerUI : NetworkBehaviour
             return;
         }
 
-        // บังคับให้ PointsText อยู่ใน HUD Canvas
         pointsText.transform.SetParent(hudCanvas.transform, false);
 
         RectTransform rt = pointsText.rectTransform;
 
-        // Anchor = มุมขวาบน
         rt.anchorMin = new Vector2(1f, 1f);
         rt.anchorMax = new Vector2(1f, 1f);
         rt.pivot = new Vector2(1f, 1f);
 
-        // ตำแหน่ง
         rt.anchoredPosition = new Vector2(-20f, -20f);
-
-        // ขนาด
         rt.sizeDelta = new Vector2(400f, 60f);
 
-        // ป้องกัน Scale เพี้ยน
         rt.localScale = Vector3.one;
         rt.localRotation = Quaternion.identity;
 
-        // บังคับให้มองเห็น
         pointsText.gameObject.SetActive(true);
         pointsText.enabled = true;
 
-        // Font
         pointsText.fontSize = 36f;
         pointsText.fontStyle = FontStyles.Bold;
 
-        // สีขาวแบบเห็นแน่นอน
         pointsText.color = Color.white;
         pointsText.alpha = 1f;
 
-        // Alignment
         pointsText.alignment = TextAlignmentOptions.TopRight;
 
-        // Text
         pointsText.text = $"Points: {GetCurrentPoints()}";
 
-        // เอาขึ้นมาอยู่ด้านบนสุดของ Canvas
         pointsText.transform.SetAsLastSibling();
 
         Canvas.ForceUpdateCanvases();
-
-        Debug.Log(
-            $"[PlayerUI] FORCE POINTS UI | " +
-            $"Parent={pointsText.transform.parent.name} | " +
-            $"Pos={rt.anchoredPosition} | " +
-            $"Size={rt.sizeDelta} | " +
-            $"Color={pointsText.color} | " +
-            $"Text='{pointsText.text}'"
-        );
     }
+
     private void LateUpdate()
     {
         if (Object == null || Object.IsValid == false || IsLocalPlayer == false)
@@ -144,15 +125,9 @@ public class PlayerUI : NetworkBehaviour
             return;
         }
 
-        if (_cachedPlayerStats == null)
-        {
-            TryCachePlayerStats();
-        }
-
-        if (_cachedPlayerPoints == null)
-        {
-            TryCachePlayerPoints();
-        }
+        if (_cachedPlayerStats == null) TryCachePlayerStats();
+        if (_cachedPlayerPoints == null) TryCachePlayerPoints();
+        if (_cachedPlayerWeapon == null) TryCachePlayerWeapon();
 
         if (_cachedPlayerStats == null)
         {
@@ -174,22 +149,13 @@ public class PlayerUI : NetworkBehaviour
 
         bool changed = false;
 
-        if (_cachedPlayerStats.Health != _lastHealth)
-        {
-            changed = true;
-        }
+        if (_cachedPlayerStats.Health != _lastHealth) changed = true;
+        if (GetCurrentPoints() != _lastPoints) changed = true;
+        if (_cachedPlayerStats.Kills != _lastKills) changed = true;
+        if (_cachedPlayerStats.IsDead != _lastIsDead) changed = true;
 
-        if (GetCurrentPoints() != _lastPoints)
-        {
-            changed = true;
-        }
-
-        if (_cachedPlayerStats.Kills != _lastKills)
-        {
-            changed = true;
-        }
-
-        if (_cachedPlayerStats.IsDead != _lastIsDead)
+        // [เพิ่มจุดที่ 5]: เช็กความเปลี่ยนแปลงของจำนวนกระสุน
+        if (_cachedPlayerWeapon != null && _cachedPlayerWeapon.CurrentAmmo != _lastAmmo)
         {
             changed = true;
         }
@@ -219,6 +185,15 @@ public class PlayerUI : NetworkBehaviour
         }
     }
 
+    // [เพิ่มจุดที่ 6]: ฟังก์ชัน Cache PlayerWeapon
+    private void TryCachePlayerWeapon()
+    {
+        if (_cachedPlayerWeapon == null)
+        {
+            _cachedPlayerWeapon = GetComponent<PlayerWeapon>();
+        }
+    }
+
     private bool IsLocalPlayer
     {
         get
@@ -230,28 +205,13 @@ public class PlayerUI : NetworkBehaviour
     private void TryBindHealthFillImage()
     {
         GameObject healthFillObject = GameObject.Find(HealthFillObjectName);
-        if (healthFillObject == null)
-        {
-            healthFillObject = GameObject.Find("HealthFill");
-        }
+        if (healthFillObject == null) healthFillObject = GameObject.Find("HealthFill");
+        if (healthFillObject == null) healthFillObject = GameObject.Find("Fill");
 
-        if (healthFillObject == null)
-        {
-            healthFillObject = GameObject.Find("Fill");
-        }
-
-        if (healthFillObject == null)
-        {
-            Debug.LogWarning($"PlayerUI: Could not find health fill object '{HealthFillObjectName}'.");
-            return;
-        }
+        if (healthFillObject == null) return;
 
         Image foundFill = healthFillObject.GetComponent<UnityEngine.UI.Image>();
-        if (foundFill == null)
-        {
-            Debug.LogWarning($"PlayerUI: '{healthFillObject.name}' has no UnityEngine.UI.Image component.");
-            return;
-        }
+        if (foundFill == null) return;
 
         healthFillImage = foundFill;
         healthFillImage.type = Image.Type.Filled;
@@ -260,25 +220,12 @@ public class PlayerUI : NetworkBehaviour
 
     public void RefreshHealthUI()
     {
-        if (IsLocalPlayer == false)
-        {
-            return;
-        }
+        if (IsLocalPlayer == false) return;
 
-        if (_cachedPlayerStats == null)
-        {
-            TryCachePlayerStats();
-        }
+        if (_cachedPlayerStats == null) TryCachePlayerStats();
+        if (_cachedPlayerStats == null) return;
 
-        if (_cachedPlayerStats == null)
-        {
-            return;
-        }
-
-        if (healthFillImage == null)
-        {
-            TryBindHealthFillImage();
-        }
+        if (healthFillImage == null) TryBindHealthFillImage();
 
         BindOverlayHealthHud();
 
@@ -320,10 +267,7 @@ public class PlayerUI : NetworkBehaviour
             if (overlayHealth != null)
             {
                 TMP_Text overlayText = overlayHealth.GetComponent<TMP_Text>();
-                if (overlayText != null)
-                {
-                    healthText = overlayText;
-                }
+                if (overlayText != null) healthText = overlayText;
             }
         }
 
@@ -333,38 +277,27 @@ public class PlayerUI : NetworkBehaviour
             if (overlayFill != null)
             {
                 Image overlayImage = overlayFill.GetComponent<Image>();
-                if (overlayImage != null)
-                {
-                    healthFillImage = overlayImage;
-                }
+                if (overlayImage != null) healthFillImage = overlayImage;
             }
         }
     }
 
     private static bool IsWorldSpace(TMP_Text text)
     {
-        if (text == null)
-        {
-            return false;
-        }
-
+        if (text == null) return false;
         Canvas canvas = text.GetComponentInParent<Canvas>();
         return canvas != null && canvas.renderMode == RenderMode.WorldSpace;
     }
 
     private int GetCurrentPoints()
     {
-        if (_cachedPlayerPoints != null)
-        {
-            return _cachedPlayerPoints.TotalPoints;
-        }
-
+        if (_cachedPlayerPoints != null) return _cachedPlayerPoints.TotalPoints;
         return _cachedPlayerStats != null ? _cachedPlayerStats.Points : 0;
     }
 
     private void CreateDefaultUIIfMissing()
     {
-        if (healthText == null || pointsText == null || respawnText == null || killsText == null || healthFillImage == null || IsWorldSpace(healthText))
+        if (healthText == null || pointsText == null || respawnText == null || killsText == null || healthFillImage == null || ammoText == null || IsWorldSpace(healthText))
         {
             FindOrCreateHUD();
         }
@@ -394,16 +327,14 @@ public class PlayerUI : NetworkBehaviour
 
         Transform root = hudCanvasGo.transform;
 
+        // --- Health Text ---
         if (healthText == null || IsWorldSpace(healthText))
         {
             Transform existingHealth = root.Find("HealthText");
             if (existingHealth != null)
             {
                 TMP_Text overlayText = existingHealth.GetComponent<TMP_Text>();
-                if (overlayText != null)
-                {
-                    healthText = overlayText;
-                }
+                if (overlayText != null) healthText = overlayText;
             }
             else
             {
@@ -425,14 +356,12 @@ public class PlayerUI : NetworkBehaviour
             }
         }
 
+        // --- Points Text ---
         if (pointsText == null || pointsText.gameObject.activeInHierarchy == false)
         {
             GameObject pointsGo = new GameObject("PointsText", typeof(RectTransform));
-
             pointsGo.transform.SetParent(root, false);
-
             RectTransform rt = pointsGo.GetComponent<RectTransform>();
-
             rt.anchorMin = new Vector2(1, 1);
             rt.anchorMax = new Vector2(1, 1);
             rt.pivot = new Vector2(1, 1);
@@ -440,7 +369,6 @@ public class PlayerUI : NetworkBehaviour
             rt.sizeDelta = new Vector2(400, 60);
 
             pointsText = pointsGo.AddComponent<TextMeshProUGUI>();
-
             pointsText.fontSize = 36;
             pointsText.fontStyle = FontStyles.Bold;
             pointsText.color = new Color(1f, 0.9f, 0.3f, 1f);
@@ -448,6 +376,7 @@ public class PlayerUI : NetworkBehaviour
             pointsText.text = $"Points: {GetCurrentPoints()}";
         }
 
+        // --- Kills Text ---
         if (killsText == null)
         {
             GameObject killsGo = new GameObject("KillsText", typeof(RectTransform));
@@ -467,6 +396,37 @@ public class PlayerUI : NetworkBehaviour
             killsText.text = "Kills: 0";
         }
 
+        // [เพิ่มจุดที่ 7]: สั่งสร้าง AmmoText บริเวณมุมขวาล่าง
+        if (ammoText == null)
+        {
+            Transform existingAmmo = root.Find("AmmoText");
+            if (existingAmmo != null)
+            {
+                ammoText = existingAmmo.GetComponent<TMP_Text>();
+            }
+            else
+            {
+                GameObject ammoGo = new GameObject("AmmoText", typeof(RectTransform));
+                ammoGo.transform.SetParent(root, false);
+                RectTransform rt = ammoGo.GetComponent<RectTransform>();
+
+                // Anchor = มุมขวาล่าง (Bottom-Right)
+                rt.anchorMin = new Vector2(1, 0);
+                rt.anchorMax = new Vector2(1, 0);
+                rt.pivot = new Vector2(1, 0);
+                rt.anchoredPosition = new Vector2(-20, 20); // ระยะห่างจากขอบขวาและขอบล่าง
+                rt.sizeDelta = new Vector2(400, 60);
+
+                ammoText = ammoGo.AddComponent<TextMeshProUGUI>();
+                ammoText.fontSize = 36;
+                ammoText.fontStyle = FontStyles.Bold;
+                ammoText.color = new Color(1f, 1f, 1f, 1f); // สีขาว
+                ammoText.alignment = TextAlignmentOptions.BottomRight;
+                ammoText.text = "Ammo: -- / --";
+            }
+        }
+
+        // --- Respawn Text ---
         if (respawnText == null)
         {
             GameObject respawnGo = new GameObject("RespawnText", typeof(RectTransform));
@@ -487,6 +447,7 @@ public class PlayerUI : NetworkBehaviour
             respawnText.enabled = false;
         }
 
+        // --- Health Fill ---
         if (healthFillImage == null)
         {
             GameObject fillGo = new GameObject("HealthFill", typeof(RectTransform));
@@ -521,10 +482,7 @@ public class PlayerUI : NetworkBehaviour
 
     private void RefreshUI(bool force)
     {
-        if (_cachedPlayerStats == null)
-        {
-            return;
-        }
+        if (_cachedPlayerStats == null) return;
 
         RefreshHealthUI();
 
@@ -534,10 +492,7 @@ public class PlayerUI : NetworkBehaviour
             {
                 respawnText.enabled = true;
                 float remain = Mathf.Ceil(_cachedPlayerStats.RemainingRespawnSeconds);
-                if (remain < 0.5f)
-                {
-                    remain = 0f;
-                }
+                if (remain < 0.5f) remain = 0f;
                 respawnText.text = $"RESPAWNING IN {remain:0}...";
                 _lastRespawnSeconds = remain;
             }
@@ -551,18 +506,11 @@ public class PlayerUI : NetworkBehaviour
         if (pointsText != null)
         {
             int currentPoints = GetCurrentPoints();
-
             pointsText.gameObject.SetActive(true);
             pointsText.enabled = true;
             pointsText.alpha = 1f;
-
             pointsText.text = $"Points: {currentPoints}";
-
             _lastPoints = currentPoints;
-        }
-        else
-        {
-            Debug.LogError("[PlayerUI] pointsText == NULL!");
         }
 
         if (killsText != null)
@@ -574,10 +522,28 @@ public class PlayerUI : NetworkBehaviour
             }
         }
 
+        // [เพิ่มจุดที่ 8]: อัปเดตข้อความจำนวนกระสุนบน UI
+        if (ammoText != null)
+        {
+            if (_cachedPlayerWeapon != null)
+            {
+                // ถ้ากำลัง Reload ให้ขึ้นแสดง RELOADING...
+                if (_cachedPlayerWeapon.IsReloading)
+                {
+                    ammoText.text = "RELOADING...";
+                }
+                else
+                {
+                    ammoText.text = $"Ammo: {_cachedPlayerWeapon.CurrentAmmo} / {_cachedPlayerWeapon.MaxAmmo}";
+                }
+                _lastAmmo = _cachedPlayerWeapon.CurrentAmmo;
+            }
+            else
+            {
+                ammoText.text = "Ammo: -- / --";
+            }
+        }
+
         _lastIsDead = _cachedPlayerStats.IsDead;
-
-
     }
 }
-
-

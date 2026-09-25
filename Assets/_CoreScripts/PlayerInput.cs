@@ -6,4 +6,5 @@ public struct PlayerInput : INetworkInput
     public Vector2 MoveInput;
     public Vector3 LookDirection;
     public NetworkBool FirePressed;
+    public NetworkBool ReloadPressed;
 }

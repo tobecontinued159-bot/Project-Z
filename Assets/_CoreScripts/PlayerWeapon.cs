@@ -17,15 +17,20 @@ public class PlayerWeapon : NetworkBehaviour
     [SerializeField] private float upgradeFireRateMultiplier = 0.7f;
     [SerializeField] private float minFireRate = 0.08f;
 
-    [Header("Ammo")]
+    [Header("Ammo & Reload Settings")]
     [SerializeField] private int maxAmmo = 30;
+    [SerializeField] private float reloadTime = 2f; // [เพิ่มจุดที่ 1]: ตั้งเวลารีโหลด 2 วินาที
 
     [Networked] public int Damage { get; set; }
     [Networked] public float FireRate { get; set; }
     [Networked] public int CurrentAmmo { get; set; }
+    [Networked] public NetworkBool IsReloading { get; set; } // [เพิ่มจุดที่ 2]: ตัวแปรบอกสถานะ Reload
+    [Networked] private TickTimer ReloadTimer { get; set; }  // [เพิ่มจุดที่ 3]: ตัวจับเวลา Reload 2 วินาที
     [Networked] private NetworkBool DamageBuffActive { get; set; }
     [Networked] private TickTimer DamageBuffTimer { get; set; }
     [Networked] private int UnbuffedDamage { get; set; }
+
+    public int MaxAmmo => maxAmmo;
 
     [Header("Laser Sight")]
     [SerializeField] private float laserWidth = 0.03f;
@@ -48,6 +53,8 @@ public class PlayerWeapon : NetworkBehaviour
             Damage = damage;
             FireRate = fireRate;
             CurrentAmmo = maxAmmo;
+            IsReloading = false;
+            ReloadTimer = TickTimer.None;
             DamageBuffActive = false;
             DamageBuffTimer = TickTimer.None;
             UnbuffedDamage = damage;
@@ -68,11 +75,7 @@ public class PlayerWeapon : NetworkBehaviour
     [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
     private void RPC_RequestUpgrade()
     {
-        if (HasStateAuthority == false)
-        {
-            return;
-        }
-
+        if (HasStateAuthority == false) return;
         ApplyUpgrade();
     }
 
@@ -83,28 +86,38 @@ public class PlayerWeapon : NetworkBehaviour
         Debug.Log($"{name} upgraded weapon. Damage: {Damage}, FireRate: {FireRate:0.00}");
     }
 
-    public void RefillAmmo()
+    // [แก้ไขจุดที่ 4]: สั่งเริ่มกระบวนการ Reload 2 วินาที
+    public void StartReload()
     {
         if (HasStateAuthority == false)
         {
-            RPC_RequestRefillAmmo();
+            RPC_RequestStartReload();
             return;
         }
 
-        CurrentAmmo = Mathf.Max(1, maxAmmo);
-        Debug.Log($"{name} ammo refilled: {CurrentAmmo}");
+        if (IsReloading || CurrentAmmo >= maxAmmo) return;
+
+        IsReloading = true;
+        ReloadTimer = TickTimer.CreateFromSeconds(Runner, reloadTime);
+        Debug.Log($"{name} started reloading ({reloadTime}s)...");
     }
 
     [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
-    private void RPC_RequestRefillAmmo()
+    private void RPC_RequestStartReload()
     {
-        if (HasStateAuthority == false)
-        {
-            return;
-        }
+        if (HasStateAuthority == false) return;
+        if (IsReloading || CurrentAmmo >= maxAmmo) return;
 
-        CurrentAmmo = Mathf.Max(1, maxAmmo);
-        Debug.Log($"{name} ammo refilled (RPC): {CurrentAmmo}");
+        IsReloading = true;
+        ReloadTimer = TickTimer.CreateFromSeconds(Runner, reloadTime);
+    }
+
+    private void CompleteReload()
+    {
+        CurrentAmmo = maxAmmo;
+        IsReloading = false;
+        ReloadTimer = TickTimer.None;
+        Debug.Log($"{name} reload completed!");
     }
 
     public void ApplyDamageBuff(float duration, int multiplier)
@@ -121,11 +134,7 @@ public class PlayerWeapon : NetworkBehaviour
     [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
     private void RPC_RequestDamageBuff(float duration, int multiplier)
     {
-        if (HasStateAuthority == false)
-        {
-            return;
-        }
-
+        if (HasStateAuthority == false) return;
         ApplyDamageBuffLocal(duration, multiplier);
     }
 
@@ -145,15 +154,9 @@ public class PlayerWeapon : NetworkBehaviour
 
     private void TickDamageBuff()
     {
-        if (HasStateAuthority == false || DamageBuffActive == false)
-        {
-            return;
-        }
+        if (HasStateAuthority == false || DamageBuffActive == false) return;
 
-        if (DamageBuffTimer.Expired(Runner) == false)
-        {
-            return;
-        }
+        if (DamageBuffTimer.Expired(Runner) == false) return;
 
         Damage = UnbuffedDamage > 0 ? UnbuffedDamage : damage;
         DamageBuffActive = false;
@@ -165,63 +168,67 @@ public class PlayerWeapon : NetworkBehaviour
     {
         if (EnsureStats() && _cachedStats.IsDead)
         {
-            if (_laserLine != null)
-            {
-                _laserLine.enabled = false;
-            }
+            if (_laserLine != null) _laserLine.enabled = false;
             return;
         }
 
-        if (HasInputAuthority && PlayerInputLock.IsTerminalOpen)
+        if (HasInputAuthority && PlayerInputLock.IsTerminalOpen) return;
+
+        if (HasInputAuthority)
         {
-            return;
+            Fire(applyDamage: false);
         }
-
-        Fire(applyDamage: false);
     }
 
     public override void FixedUpdateNetwork()
     {
-        if (EnsureStats() && _cachedStats.IsDead)
-        {
-            return;
-        }
+        if (EnsureStats() && _cachedStats.IsDead) return;
 
         TickDamageBuff();
 
-        if (HasInputAuthority && PlayerInputLock.IsTerminalOpen)
+        // [แก้ไขจุดที่ 5]: เช็กว่าครบรอบ 2 วินาทีของการ Reload หรือยัง (ฝั่ง State Authority)
+        if (HasStateAuthority && IsReloading)
         {
-            return;
+            if (ReloadTimer.Expired(Runner))
+            {
+                CompleteReload();
+            }
         }
 
-        if (GetInput(out PlayerInput input) == false)
+        if (GetInput(out PlayerInput input) == false) return;
+
+        // [แก้ไขจุดที่ 6]: หากกดปุ่ม R หรือกระสุนหมด ให้สั่งเริ่ม StartReload() 2 วินาที
+        if (input.ReloadPressed || (input.FirePressed && CurrentAmmo <= 0))
         {
-            return;
+            if (IsReloading == false && CurrentAmmo < maxAmmo)
+            {
+                StartReload();
+            }
         }
 
-        if (input.FirePressed == false)
-        {
-            return;
-        }
+        if (PlayerInputLock.IsTerminalOpen) return;
 
-        if (FireCooldown.ExpiredOrNotRunning(Runner) == false)
-        {
-            return;
-        }
+        // ห้ามยิงถ้าระหว่างกำลัง Reload อยู่ หรือกระสุนหมด
+        if (IsReloading || CurrentAmmo <= 0) return;
 
-        if (CurrentAmmo <= 0)
-        {
-            return;
-        }
+        if (input.FirePressed == false) return;
 
-        Fire(applyDamage: true);
+        if (FireCooldown.ExpiredOrNotRunning(Runner) == false) return;
+
         if (HasStateAuthority)
         {
+            Fire(applyDamage: true);
             CurrentAmmo = Mathf.Max(0, CurrentAmmo - 1);
-        }
 
-        float currentFireRate = FireRate > 0f ? FireRate : fireRate;
-        FireCooldown = TickTimer.CreateFromSeconds(Runner, currentFireRate);
+            // กระสุนหมดนัดสุดท้าย ให้สั่งเริ่ม Reload ทันทีอัตโนมัติ
+            if (CurrentAmmo <= 0)
+            {
+                StartReload();
+            }
+
+            float currentFireRate = FireRate > 0f ? FireRate : fireRate;
+            FireCooldown = TickTimer.CreateFromSeconds(Runner, currentFireRate);
+        }
     }
 
     private bool EnsureStats()
@@ -230,7 +237,6 @@ public class PlayerWeapon : NetworkBehaviour
         {
             _cachedStats = GetComponent<PlayerStats>();
         }
-
         return _cachedStats != null;
     }
 
@@ -266,15 +272,12 @@ public class PlayerWeapon : NetworkBehaviour
         }
 
         _laserLine.numCapVertices = 2;
-        _laserLine.useWorldSpace = true; // บังคับ Use World Space ในโค้ด
+        _laserLine.useWorldSpace = true;
     }
 
     private void EnsureFirePoint()
     {
-        if (firePoint != null)
-        {
-            return;
-        }
+        if (firePoint != null) return;
 
         Transform existing = transform.Find("FirePoint");
         if (existing != null)
@@ -292,24 +295,17 @@ public class PlayerWeapon : NetworkBehaviour
     private void Fire(bool applyDamage)
     {
         EnsureFirePoint();
-        if (firePoint == null)
-        {
-            return;
-        }
+        if (firePoint == null) return;
 
-        // ใช้ตำแหน่ง firePoint ตรงๆ เลย ไม่ต้องไปบังคับแก้แกน Y แบบโค้ดเก่า
         Vector3 fireOrigin = firePoint.position;
-
         Vector3 targetPoint = fireOrigin + FlattenHorizontal(transform.forward);
         Camera gameplayCamera = Camera.main;
-        
+
         if (HasInputAuthority && gameplayCamera != null)
         {
             Ray ray = gameplayCamera.ScreenPointToRay(Input.mousePosition);
-            
-            // สร้าง Plane จำลองให้อยู่ระดับเดียวกับ firePoint แบบเป๊ะๆ
             Plane aimPlane = new Plane(Vector3.up, fireOrigin);
-            
+
             if (aimPlane.Raycast(ray, out float enter))
             {
                 targetPoint = ray.GetPoint(enter);
@@ -320,12 +316,11 @@ public class PlayerWeapon : NetworkBehaviour
             targetPoint = input.LookDirection;
         }
 
-        // บังคับให้เป้าหมายมีความสูงเท่ากับจุดปล่อยกระสุน
         targetPoint.y = fireOrigin.y;
 
         Vector3 direction = targetPoint - fireOrigin;
-        direction.y = 0f; // ล็อกไม่ให้กระสุนเฉียงขึ้น/ลง
-        
+        direction.y = 0f;
+
         if (direction.sqrMagnitude < 0.001f)
         {
             direction = FlattenHorizontal(transform.forward);
@@ -337,9 +332,9 @@ public class PlayerWeapon : NetworkBehaviour
         if (Physics.SphereCast(fireOrigin, shotRadius, direction, out RaycastHit hit, weaponRange, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
         {
             endPosition = fireOrigin + (direction * hit.distance);
-            endPosition.y = fireOrigin.y; // ล็อกจุดตกกระทบให้ขนานพื้น
+            endPosition.y = fireOrigin.y;
 
-            if (applyDamage)
+            if (applyDamage && HasStateAuthority)
             {
                 ZombieAI zombie = hit.collider.GetComponentInParent<ZombieAI>();
                 if (zombie != null)
@@ -351,9 +346,9 @@ public class PlayerWeapon : NetworkBehaviour
             }
         }
 
-        if (_laserLine != null)
+        if (_laserLine != null && HasInputAuthority)
         {
-            _laserLine.useWorldSpace = true; // แถมให้อีกรอบกันเหนียว
+            _laserLine.useWorldSpace = true;
             _laserLine.SetPosition(0, fireOrigin);
             _laserLine.SetPosition(1, endPosition);
             _laserLine.enabled = true;
@@ -376,7 +371,7 @@ public class PlayerWeapon : NetworkBehaviour
         return value.normalized;
     }
 
-    [Rpc(RpcSources.InputAuthority, RpcTargets.All, Channel = RpcChannel.Unreliable)]
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All, Channel = RpcChannel.Unreliable)]
     private void RPC_RenderShotEffect(Vector3 muzzlePosition, Vector3 fireDirection)
     {
         Debug.DrawRay(muzzlePosition, fireDirection * weaponRange, Color.yellow, 0.1f);

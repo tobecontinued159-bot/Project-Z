@@ -19,7 +19,10 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
     private bool _hasSpawnedLocalPlayer;
 
     private Camera _cachedMainCamera;
+
+    // Flag สำหรับเก็บสถานะการกดปุ่มจาก Update มายัง OnInput
     private bool _fireRequestPending;
+    private bool _reloadRequestPending;
 
     public void SetPlayerPrefab(NetworkObject prefab)
     {
@@ -36,12 +39,19 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
         if (PlayerInputLock.IsTerminalOpen)
         {
             _fireRequestPending = false;
+            _reloadRequestPending = false;
             return;
         }
 
-        if (Input.GetButtonDown("Fire1"))
+        // [จุดแก้ที่ 1]: ดักจับการกดปุ่ม Fire (คลิกซ้าย/ค้าง) และ Reload (ปุ่ม R) ใน Update
+        if (Input.GetButton("Fire1") || Input.GetButtonDown("Fire1"))
         {
             _fireRequestPending = true;
+        }
+
+        if (Input.GetKeyDown(KeyCode.R))
+        {
+            _reloadRequestPending = true;
         }
     }
 
@@ -101,10 +111,8 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
         DisableFusionDebugIMGUI();
 
-        if (_runner.LocalPlayer.IsRealPlayer)
-        {
-            SpawnLocalPlayer(_runner, _runner.LocalPlayer);
-        }
+        // [จุดแก้ที่ 2]: ลบ SpawnLocalPlayer() ตรงนี้ออก 
+        // ให้ไปรอเกิดใน OnPlayerJoined() ทีเดียว เพื่อป้องกันการสปอว์นซ้ำสองรอบ
     }
 
     private static void DisableFusionDebugIMGUI()
@@ -209,8 +217,11 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
             PlayerInput lockedInput = new PlayerInput();
             lockedInput.MoveInput = Vector2.zero;
             lockedInput.FirePressed = false;
+            lockedInput.ReloadPressed = false;
             input.Set(lockedInput);
+
             _fireRequestPending = false;
+            _reloadRequestPending = false;
             return;
         }
 
@@ -250,77 +261,47 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
             data.LookDirection = lookPoint;
         }
 
+        // [จุดแก้ที่ 3]: ส่งค่าปุ่ม Fire และ Reload เข้า Network Input แล้วเคลียร์ค่ารอไว้รอบถัดไป
         data.FirePressed = _fireRequestPending;
+        data.ReloadPressed = _reloadRequestPending;
+
         _fireRequestPending = false;
+        _reloadRequestPending = false;
 
         input.Set(data);
     }
 
-    public void OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input)
-    {
-    }
-
+    public void OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input) { }
     public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason)
     {
         _spawnedPlayers.Clear();
         AllPlayers.Clear();
         _hasSpawnedLocalPlayer = false;
         _fireRequestPending = false;
+        _reloadRequestPending = false;
         Debug.Log($"Fusion shutdown: {shutdownReason}");
     }
 
-    public void OnConnectedToServer(NetworkRunner runner)
-    {
-    }
-
+    public void OnConnectedToServer(NetworkRunner runner) { }
     public void OnDisconnectedFromServer(NetworkRunner runner, NetDisconnectReason reason)
     {
         Debug.LogWarning($"Fusion disconnected: {reason}");
     }
-
     public void OnConnectRequest(NetworkRunner runner, NetworkRunnerCallbackArgs.ConnectRequest request, byte[] token)
     {
         request.Accept();
     }
-
     public void OnConnectFailed(NetworkRunner runner, NetAddress remoteAddress, NetConnectFailedReason reason)
     {
         Debug.LogError($"Fusion connect failed: {reason}");
     }
-
-    public void OnObjectEnterAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player)
-    {
-    }
-
-    public void OnObjectExitAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player)
-    {
-    }
-
-    public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, ReadOnlySpan<byte> data)
-    {
-    }
-
-    public void OnReliableDataProgress(NetworkRunner runner, PlayerRef player, ReliableKey key, float progress)
-    {
-    }
-
-    public void OnSceneLoadStart(NetworkRunner runner)
-    {
-    }
-
-    public void OnSceneLoadDone(NetworkRunner runner)
-    {
-    }
-
-    public void OnSessionListUpdated(NetworkRunner runner, List<SessionInfo> sessionList)
-    {
-    }
-
-    public void OnCustomAuthenticationResponse(NetworkRunner runner, Dictionary<string, object> data)
-    {
-    }
-
-    public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken)
-    {
-    }
+    public void OnObjectEnterAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
+    public void OnObjectExitAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
+    public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, ReadOnlySpan<byte> data) { }
+    public void OnReliableDataProgress(NetworkRunner runner, PlayerRef player, ReliableKey key, float progress) { }
+    public void OnSceneLoadStart(NetworkRunner runner) { }
+    public void OnSceneLoadDone(NetworkRunner runner) { }
+    public void OnSessionListUpdated(NetworkRunner runner, List<SessionInfo> sessionList) { }
+    public void OnCustomAuthenticationResponse(NetworkRunner runner, Dictionary<string, object> data) { }
+    public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken) { }
 }

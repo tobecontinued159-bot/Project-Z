@@ -68,13 +68,14 @@ public class TerminalBuffManager : NetworkBehaviour
                 continue;
             }
 
+            // แก้ไขจุดนี้: เรียกฟังก์ชันเติมกระสุนผ่าน StartReload หรือสั่งเติมกระสุนโดยตรง
             if (weapon.HasStateAuthority || weapon.HasInputAuthority)
             {
-                weapon.RefillAmmo();
+                weapon.StartReload(); // สั่งให้ผู้เล่นทุกคนเริ่มรีโหลดกระสุนทันที
             }
         }
 
-        Debug.Log("TerminalBuff: Ammo refilled for all players.");
+        Debug.Log("TerminalBuff: Ammo refilled/reloading for all players.");
     }
 
     [Rpc(RpcSources.All, RpcTargets.All, Channel = RpcChannel.Reliable)]
