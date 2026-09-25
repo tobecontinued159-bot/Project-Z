@@ -71,7 +71,7 @@ public class TerminalBuffManager : NetworkBehaviour
             // RpcTargets.All: each peer only writes ammo on weapons it owns.
             if (weapon.HasStateAuthority)
             {
-                weapon.StartReload(); // ����������蹷ء�����������Ŵ����ع�ѹ��
+                weapon.RefillAmmo();
             }
         }
         Debug.Log("Network Buff: Max Ammo given to all players!");

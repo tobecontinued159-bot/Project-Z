@@ -19,17 +19,15 @@ public class PlayerWeapon : NetworkBehaviour
 
     [Header("Ammo & Reload Settings")]
     [SerializeField] private int maxAmmo = 30;
-
     [SerializeField] private int maxReserveAmmo = 90;
-
+    [SerializeField] private float reloadDuration = 2f;
 
     [Networked] public int Damage { get; set; }
     [Networked] public float FireRate { get; set; }
     [Networked] public int CurrentAmmo { get; set; }
-
-
     [Networked] public int ReserveAmmo { get; set; }
- 
+    [Networked] public NetworkBool IsReloading { get; set; }
+    [Networked] private TickTimer ReloadTimer { get; set; }
     [Networked] private NetworkBool DamageBuffActive { get; set; }
     [Networked] private TickTimer DamageBuffTimer { get; set; }
     [Networked] private int UnbuffedDamage { get; set; }
@@ -57,8 +55,9 @@ public class PlayerWeapon : NetworkBehaviour
             Damage = damage;
             FireRate = fireRate;
             CurrentAmmo = maxAmmo;
-
             ReserveAmmo = maxReserveAmmo;
+            IsReloading = false;
+            ReloadTimer = TickTimer.None;
             DamageBuffActive = false;
             DamageBuffTimer = TickTimer.None;
             UnbuffedDamage = damage;
@@ -90,7 +89,6 @@ public class PlayerWeapon : NetworkBehaviour
         Debug.Log($"{name} upgraded weapon. Damage: {Damage}, FireRate: {FireRate:0.00}");
     }
 
-    // [แก้ไขจุดที่ 4]: สั่งเริ่มกระบวนการ Reload 2 วินาที
     public void StartReload()
     {
         if (HasStateAuthority == false)
@@ -99,24 +97,78 @@ public class PlayerWeapon : NetworkBehaviour
             return;
         }
 
-        FillAmmoToMax();
+        BeginReload();
     }
 
     [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
     private void RPC_RequestStartReload()
     {
-        if (HasStateAuthority == false) return;
-        if (IsReloading || CurrentAmmo >= maxAmmo) return;
+        BeginReload();
+    }
 
+    private void BeginReload()
+    {
+        if (HasStateAuthority == false)
+        {
+            return;
+        }
+
+        if (IsReloading || CurrentAmmo >= maxAmmo || ReserveAmmo <= 0)
+        {
+            return;
+        }
+
+        IsReloading = true;
+        ReloadTimer = TickTimer.CreateFromSeconds(Runner, Mathf.Max(0.1f, reloadDuration));
+        Debug.Log($"{name} started reload ({reloadDuration:0.00}s).");
+    }
+
+    private void CompleteReload()
+    {
+        if (HasStateAuthority == false)
+        {
+            return;
+        }
+
+        int missingAmmo = Mathf.Max(0, maxAmmo - CurrentAmmo);
+        int ammoToLoad = Mathf.Min(missingAmmo, Mathf.Max(0, ReserveAmmo));
+        CurrentAmmo += ammoToLoad;
+        ReserveAmmo = Mathf.Max(0, ReserveAmmo - ammoToLoad);
+
+        IsReloading = false;
+        ReloadTimer = TickTimer.None;
+        Debug.Log($"{name} reload complete: {CurrentAmmo}/{ReserveAmmo}");
+    }
+
+    public void RefillAmmo()
+    {
+        if (HasStateAuthority == false)
+        {
+            RPC_RequestRefillAmmo();
+            return;
+        }
+
+        FillAmmoToMax();
+    }
+
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
+    private void RPC_RequestRefillAmmo()
+    {
         FillAmmoToMax();
     }
 
     private void FillAmmoToMax()
     {
+        if (HasStateAuthority == false)
+        {
+            return;
+        }
+
         CurrentAmmo = Mathf.Max(1, maxAmmo);
         ReserveAmmo = Mathf.Max(0, maxReserveAmmo);
+        IsReloading = false;
+        ReloadTimer = TickTimer.None;
         Debug.Log($"{name} ammo refilled: {CurrentAmmo}/{ReserveAmmo}");
-
     }
 
     public void ApplyDamageBuff(float duration, int multiplier)
