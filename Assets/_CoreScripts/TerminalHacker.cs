@@ -61,7 +61,7 @@ public class TerminalHacker : MonoBehaviour
         {
             if (TerminalBuffManager.Instance != null)
             {
-                TerminalBuffManager.Instance.ExecuteCommand(_currentCommand);
+                TerminalBuffManager.Instance.ApplyTerminalBuff(_currentCommand);
             }
             else
             {

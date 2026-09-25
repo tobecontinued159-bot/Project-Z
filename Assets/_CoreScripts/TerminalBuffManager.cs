@@ -25,7 +25,7 @@ public class TerminalBuffManager : NetworkBehaviour
         }
     }
 
-    public void ExecuteCommand(string command)
+    public void ApplyTerminalBuff(string command)
     {
         if (Object == null || Object.IsValid == false)
         {
@@ -40,45 +40,46 @@ public class TerminalBuffManager : NetworkBehaviour
 
         if (command == CommandGiveAmmo)
         {
-            RPC_GiveAmmoAll();
+            Rpc_GiveMaxAmmo();
             return;
         }
 
         if (command == CommandKillZombies)
         {
-            RPC_KillAllZombies();
+            Rpc_InstaKillZombies();
             return;
         }
 
         if (command == CommandDoubleDamage)
         {
-            RPC_DoubleDamage(damageBuffDuration, damageBuffMultiplier);
+            Rpc_DoubleDamage();
         }
     }
 
     [Rpc(RpcSources.All, RpcTargets.All, Channel = RpcChannel.Reliable)]
-    private void RPC_GiveAmmoAll()
+    private void Rpc_GiveMaxAmmo()
     {
         PlayerWeapon[] weapons = FindObjectsByType<PlayerWeapon>(FindObjectsSortMode.None);
         for (int i = 0; i < weapons.Length; i++)
         {
             PlayerWeapon weapon = weapons[i];
-            if (weapon == null)
+            if (IsUsableWeapon(weapon) == false)
             {
                 continue;
             }
 
-            if (weapon.HasStateAuthority || weapon.HasInputAuthority)
+            // RpcTargets.All: each peer only writes ammo on weapons it owns.
+            if (weapon.HasStateAuthority)
             {
                 weapon.RefillAmmo();
             }
         }
 
-        Debug.Log("TerminalBuff: Ammo refilled for all players.");
+        Debug.Log("Network Buff: Max Ammo given to all players!");
     }
 
     [Rpc(RpcSources.All, RpcTargets.All, Channel = RpcChannel.Reliable)]
-    private void RPC_KillAllZombies()
+    private void Rpc_InstaKillZombies()
     {
         ZombieAI[] zombies = FindObjectsByType<ZombieAI>(FindObjectsSortMode.None);
         int killed = 0;
@@ -86,7 +87,7 @@ public class TerminalBuffManager : NetworkBehaviour
         for (int i = 0; i < zombies.Length; i++)
         {
             ZombieAI zombie = zombies[i];
-            if (zombie == null)
+            if (zombie == null || zombie.Object == null || zombie.Object.IsValid == false)
             {
                 continue;
             }
@@ -97,27 +98,32 @@ public class TerminalBuffManager : NetworkBehaviour
             }
         }
 
-        Debug.Log($"TerminalBuff: Insta-killed {killed} zombies.");
+        Debug.Log($"Network Buff: All zombies destroyed! ({killed} killed on this peer)");
     }
 
     [Rpc(RpcSources.All, RpcTargets.All, Channel = RpcChannel.Reliable)]
-    private void RPC_DoubleDamage(float duration, int multiplier)
+    private void Rpc_DoubleDamage()
     {
         PlayerWeapon[] weapons = FindObjectsByType<PlayerWeapon>(FindObjectsSortMode.None);
         for (int i = 0; i < weapons.Length; i++)
         {
             PlayerWeapon weapon = weapons[i];
-            if (weapon == null)
+            if (IsUsableWeapon(weapon) == false)
             {
                 continue;
             }
 
-            if (weapon.HasStateAuthority || weapon.HasInputAuthority)
+            if (weapon.HasStateAuthority)
             {
-                weapon.ApplyDamageBuff(duration, multiplier);
+                weapon.ApplyDamageBuff(damageBuffDuration, damageBuffMultiplier);
             }
         }
 
-        Debug.Log($"TerminalBuff: x{multiplier} damage for {duration:0}s.");
+        Debug.Log("Network Buff: Double damage active!");
+    }
+
+    private static bool IsUsableWeapon(PlayerWeapon weapon)
+    {
+        return weapon != null && weapon.Object != null && weapon.Object.IsValid;
     }
 }

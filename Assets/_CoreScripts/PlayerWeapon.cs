@@ -19,10 +19,12 @@ public class PlayerWeapon : NetworkBehaviour
 
     [Header("Ammo")]
     [SerializeField] private int maxAmmo = 30;
+    [SerializeField] private int maxReserveAmmo = 90;
 
     [Networked] public int Damage { get; set; }
     [Networked] public float FireRate { get; set; }
     [Networked] public int CurrentAmmo { get; set; }
+    [Networked] public int ReserveAmmo { get; set; }
     [Networked] private NetworkBool DamageBuffActive { get; set; }
     [Networked] private TickTimer DamageBuffTimer { get; set; }
     [Networked] private int UnbuffedDamage { get; set; }
@@ -48,6 +50,7 @@ public class PlayerWeapon : NetworkBehaviour
             Damage = damage;
             FireRate = fireRate;
             CurrentAmmo = maxAmmo;
+            ReserveAmmo = maxReserveAmmo;
             DamageBuffActive = false;
             DamageBuffTimer = TickTimer.None;
             UnbuffedDamage = damage;
@@ -91,8 +94,7 @@ public class PlayerWeapon : NetworkBehaviour
             return;
         }
 
-        CurrentAmmo = Mathf.Max(1, maxAmmo);
-        Debug.Log($"{name} ammo refilled: {CurrentAmmo}");
+        FillAmmoToMax();
     }
 
     [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
@@ -103,8 +105,14 @@ public class PlayerWeapon : NetworkBehaviour
             return;
         }
 
+        FillAmmoToMax();
+    }
+
+    private void FillAmmoToMax()
+    {
         CurrentAmmo = Mathf.Max(1, maxAmmo);
-        Debug.Log($"{name} ammo refilled (RPC): {CurrentAmmo}");
+        ReserveAmmo = Mathf.Max(0, maxReserveAmmo);
+        Debug.Log($"{name} ammo refilled: {CurrentAmmo}/{ReserveAmmo}");
     }
 
     public void ApplyDamageBuff(float duration, int multiplier)
