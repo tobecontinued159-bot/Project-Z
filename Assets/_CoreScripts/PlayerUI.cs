@@ -23,11 +23,13 @@ public class PlayerUI : NetworkBehaviour
     private int _lastPoints = -1;
     private int _lastKills = -1;
     private int _lastAmmo = -1;
+    private int _lastReserveAmmo = -1;
     private bool _lastIsDead = false;
     private float _lastRespawnSeconds = -1f;
 
     public override void Spawned()
     {
+        // ป้องกันไม่ให้ Player ตัวอื่นที่ไม่ใช่เครื่องเรายุ่งกับ UI
         if (IsLocalPlayer == false)
         {
             enabled = false;
@@ -38,10 +40,10 @@ public class PlayerUI : NetworkBehaviour
         TryCachePlayerPoints();
         TryCachePlayerWeapon();
 
-        // 🟢 ลบ UI เก่าที่ตกค้างใน Scene ทิ้งทั้งหมด
+        // เคลียร์ UI เก่าที่ลอยอยู่ใน Scene ทิ้งทั้งหมด
         CleanupLegacyUI();
 
-        // 🟢 สร้างและตั้งค่า HUD Canvas ใหม่ให้หลอดเลือดอยู่มุมซ้ายล่าง
+        // สร้างและผูกโครงสร้าง HUD Canvas ใหม่ที่สะอาดบริสุทธิ์
         SetupHUDCanvas();
 
         RefreshHealthUI();
@@ -118,9 +120,12 @@ public class PlayerUI : NetworkBehaviour
         if (_cachedPlayerStats.Kills != _lastKills) changed = true;
         if (_cachedPlayerStats.IsDead != _lastIsDead) changed = true;
 
-        if (_cachedPlayerWeapon != null && _cachedPlayerWeapon.CurrentAmmo != _lastAmmo)
+        if (_cachedPlayerWeapon != null)
         {
-            changed = true;
+            if (_cachedPlayerWeapon.CurrentAmmo != _lastAmmo || _cachedPlayerWeapon.ReserveAmmo != _lastReserveAmmo)
+            {
+                changed = true;
+            }
         }
 
         float currentRespawn = _cachedPlayerStats.RemainingRespawnSeconds;
@@ -132,16 +137,13 @@ public class PlayerUI : NetworkBehaviour
         return changed;
     }
 
-    // 🔴 [ลบ UI เก่าๆ ที่วางค้างไว้ใน Scene ออกเพื่อไม่ให้ซ้อนกัน]
     private void CleanupLegacyUI()
     {
-        // ค้นหา Text เก่าๆ เช่น "HealthText" เก่า หรือข้อความที่ลอยอยู่ล่างจอแล้วสั่งลบ
         TMP_Text[] allTexts = FindObjectsByType<TMP_Text>(FindObjectsSortMode.None);
         foreach (TMP_Text txt in allTexts)
         {
             if (txt == null) continue;
 
-            // ถ้าเจอข้อความตัวอักษร Health เก่าที่ไม่ได้อยู่ใน HUD_Canvas ใหม่ ให้ทำลายทิ้ง
             if (txt.name.Contains("Health") && (txt.transform.parent == null || txt.transform.parent.name != "HUD_Canvas"))
             {
                 Destroy(txt.gameObject);
@@ -149,7 +151,6 @@ public class PlayerUI : NetworkBehaviour
         }
     }
 
-    // 🟢 [เซ็ตระบบ HUD_Canvas ใหม่: ย้ายหลอดเลือดมาไว้มุมซ้ายล่าง]
     private void SetupHUDCanvas()
     {
         if (IsLocalPlayer == false) return;
@@ -170,21 +171,21 @@ public class PlayerUI : NetworkBehaviour
 
         Transform root = hudCanvasGo.transform;
 
-        // 1. Health Text (ปรับให้ย้ายลงมาอยู่ มุมซ้ายล่าง Bottom-Left)
+        // 1. Health Text (มุมซ้ายล่าง)
         healthText = GetOrCreateTMPText(
             root,
             "HealthText",
-            new Vector2(0, 0), // Anchor: Bottom-Left
             new Vector2(0, 0),
             new Vector2(0, 0),
-            new Vector2(20, 60), // Pos: สูงจากขอบล่าง 60px
+            new Vector2(0, 0),
+            new Vector2(20, 60),
             new Vector2(400, 50),
             36,
             new Color(1f, 0.3f, 0.3f, 1f),
             TextAlignmentOptions.BottomLeft
         );
 
-        // 2. Health Fill Bar (ย้ายลงมาอยู่ใต้ Health Text ที่มุมซ้ายล่าง)
+        // 2. Health Fill Bar (อยู่ใต้ Health Text ที่มุมซ้ายล่าง)
         SetupHealthBar(root);
 
         // 3. Points Text (มุมขวาบน)
@@ -288,10 +289,10 @@ public class PlayerUI : NetworkBehaviour
         }
 
         RectTransform rt = fillTransform.GetComponent<RectTransform>();
-        rt.anchorMin = new Vector2(0, 0); // Anchor: Bottom-Left
+        rt.anchorMin = new Vector2(0, 0);
         rt.anchorMax = new Vector2(0, 0);
         rt.pivot = new Vector2(0, 0);
-        rt.anchoredPosition = new Vector2(20, 25); // สูงจากขอบล่าง 25px (อยู่ใต้ Health Text เป๊ะๆ)
+        rt.anchoredPosition = new Vector2(20, 25);
         rt.sizeDelta = new Vector2(350, 20);
 
         healthFillImage = fillTransform.GetComponent<Image>();
@@ -376,6 +377,7 @@ public class PlayerUI : NetworkBehaviour
             }
         }
 
+        // 🟢 แสดงผลกระสุน: แม็กกาซีน / กระสุนสำรองใน Stock
         if (ammoText != null)
         {
             if (_cachedPlayerWeapon != null)
@@ -386,9 +388,10 @@ public class PlayerUI : NetworkBehaviour
                 }
                 else
                 {
-                    ammoText.text = $"Ammo: {_cachedPlayerWeapon.CurrentAmmo} / {_cachedPlayerWeapon.MaxAmmo}";
+                    ammoText.text = $"Ammo: {_cachedPlayerWeapon.CurrentAmmo} / {_cachedPlayerWeapon.ReserveAmmo}";
                 }
                 _lastAmmo = _cachedPlayerWeapon.CurrentAmmo;
+                _lastReserveAmmo = _cachedPlayerWeapon.ReserveAmmo;
             }
             else
             {
