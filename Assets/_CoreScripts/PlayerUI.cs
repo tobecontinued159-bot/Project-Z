@@ -1,4 +1,4 @@
-using Fusion;
+﻿using Fusion;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -25,12 +25,10 @@ public class PlayerUI : NetworkBehaviour
     private int _lastAmmo = -1;
     private bool _lastIsDead = false;
     private float _lastRespawnSeconds = -1f;
-    private const string HealthFillObjectName = "Image";
 
     public override void Spawned()
     {
-        // [�ش���Ӥѭ��� 1]: �������� Local Player ���Դʤ�Ի�� PlayerUI �ͧ����Фõ�ǹ��������
-        // ���ͻ�ͧ�ѹ���������Фä�����Ҵ֧ HUD_Canvas ��˹�Ҩ����令Ǻ���
+        // บล็อกไม่ให้ Player ตัวอื่นที่ไม่ใช่เครื่องเรายุ่งกับ UI
         if (IsLocalPlayer == false)
         {
             enabled = false;
@@ -41,11 +39,8 @@ public class PlayerUI : NetworkBehaviour
         TryCachePlayerPoints();
         TryCachePlayerWeapon();
 
-        TryBindHealthFillImage();
-        CreateDefaultUIIfMissing();
-        BindOverlayHealthHud();
-
-        ForceSetupPointsUI();
+        // เคลียร์และผูก UI ใหม่ให้ถูกต้องเพียงตัวเดียว
+        SetupHUDCanvas();
 
         RefreshHealthUI();
         RefreshUI(force: true);
@@ -62,63 +57,10 @@ public class PlayerUI : NetworkBehaviour
         if (_cachedPlayerPoints == null) TryCachePlayerPoints();
         if (_cachedPlayerWeapon == null) TryCachePlayerWeapon();
 
-        if (_cachedPlayerStats == null)
-        {
-            return;
-        }
+        if (_cachedPlayerStats == null) return;
 
         RefreshHealthUI();
         RefreshUI(force: false);
-    }
-
-    private void ForceSetupPointsUI()
-    {
-        if (IsLocalPlayer == false) return; // [������û�ͧ�ѹ]
-
-        if (pointsText == null)
-        {
-            Debug.LogError("[PlayerUI] ForceSetupPointsUI: pointsText is NULL!");
-            return;
-        }
-
-        GameObject hudCanvas = GameObject.Find("HUD_Canvas");
-
-        if (hudCanvas == null)
-        {
-            Debug.LogError("[PlayerUI] ForceSetupPointsUI: HUD_Canvas NOT FOUND!");
-            return;
-        }
-
-        pointsText.transform.SetParent(hudCanvas.transform, false);
-
-        RectTransform rt = pointsText.rectTransform;
-
-        rt.anchorMin = new Vector2(1f, 1f);
-        rt.anchorMax = new Vector2(1f, 1f);
-        rt.pivot = new Vector2(1f, 1f);
-
-        rt.anchoredPosition = new Vector2(-20f, -20f);
-        rt.sizeDelta = new Vector2(400f, 60f);
-
-        rt.localScale = Vector3.one;
-        rt.localRotation = Quaternion.identity;
-
-        pointsText.gameObject.SetActive(true);
-        pointsText.enabled = true;
-
-        pointsText.fontSize = 36f;
-        pointsText.fontStyle = FontStyles.Bold;
-
-        pointsText.color = Color.white;
-        pointsText.alpha = 1f;
-
-        pointsText.alignment = TextAlignmentOptions.TopRight;
-
-        pointsText.text = $"Points: {GetCurrentPoints()}";
-
-        pointsText.transform.SetAsLastSibling();
-
-        Canvas.ForceUpdateCanvases();
     }
 
     private void LateUpdate()
@@ -132,10 +74,7 @@ public class PlayerUI : NetworkBehaviour
         if (_cachedPlayerPoints == null) TryCachePlayerPoints();
         if (_cachedPlayerWeapon == null) TryCachePlayerWeapon();
 
-        if (_cachedPlayerStats == null)
-        {
-            return;
-        }
+        if (_cachedPlayerStats == null) return;
 
         if (HasChanged())
         {
@@ -143,12 +82,32 @@ public class PlayerUI : NetworkBehaviour
         }
     }
 
+    private bool IsLocalPlayer
+    {
+        get
+        {
+            return Object != null && Object.IsValid && HasInputAuthority;
+        }
+    }
+
+    private void TryCachePlayerStats()
+    {
+        if (_cachedPlayerStats == null) _cachedPlayerStats = GetComponent<PlayerStats>();
+    }
+
+    private void TryCachePlayerPoints()
+    {
+        if (_cachedPlayerPoints == null) _cachedPlayerPoints = GetComponent<PlayerPoints>();
+    }
+
+    private void TryCachePlayerWeapon()
+    {
+        if (_cachedPlayerWeapon == null) _cachedPlayerWeapon = GetComponent<PlayerWeapon>();
+    }
+
     private bool HasChanged()
     {
-        if (_cachedPlayerStats == null)
-        {
-            return false;
-        }
+        if (_cachedPlayerStats == null) return false;
 
         bool changed = false;
 
@@ -171,67 +130,113 @@ public class PlayerUI : NetworkBehaviour
         return changed;
     }
 
-    private void TryCachePlayerStats()
-    {
-        if (_cachedPlayerStats == null)
-        {
-            _cachedPlayerStats = GetComponent<PlayerStats>();
-        }
-    }
-
-    private void TryCachePlayerPoints()
-    {
-        if (_cachedPlayerPoints == null)
-        {
-            _cachedPlayerPoints = GetComponent<PlayerPoints>();
-        }
-    }
-
-    private void TryCachePlayerWeapon()
-    {
-        if (_cachedPlayerWeapon == null)
-        {
-            _cachedPlayerWeapon = GetComponent<PlayerWeapon>();
-        }
-    }
-
-    private bool IsLocalPlayer
-    {
-        get
-        {
-            // [�ش���Ӥѭ��� 2]: � Photon Fusion ���� Shared/Host ����Фâͧ����ͧ����ͧ���� HasInputAuthority = true
-            return Object != null && Object.IsValid && HasInputAuthority;
-        }
-    }
-
-    private void TryBindHealthFillImage()
+    // 🟢 [จัดการสปอว์น/ผูกกับ HUD_Canvas เพียงตัวเดียวเพื่อป้องกันการสร้างซ้ำซ้อน]
+    private void SetupHUDCanvas()
     {
         if (IsLocalPlayer == false) return;
 
-        GameObject healthFillObject = GameObject.Find(HealthFillObjectName);
-        if (healthFillObject == null) healthFillObject = GameObject.Find("HealthFill");
-        if (healthFillObject == null) healthFillObject = GameObject.Find("Fill");
+        GameObject hudCanvasGo = GameObject.Find("HUD_Canvas");
+        if (hudCanvasGo == null)
+        {
+            hudCanvasGo = new GameObject("HUD_Canvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+            Canvas canvas = hudCanvasGo.GetComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 100;
 
-        if (healthFillObject == null) return;
+            CanvasScaler scaler = hudCanvasGo.GetComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920, 1080);
+            scaler.matchWidthOrHeight = 0.5f;
+        }
 
-        Image foundFill = healthFillObject.GetComponent<UnityEngine.UI.Image>();
-        if (foundFill == null) return;
+        Transform root = hudCanvasGo.transform;
 
-        healthFillImage = foundFill;
+        // 1. Health Text (มุมซ้ายบน)
+        healthText = GetOrCreateTMPText(root, "HealthText", new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(20, -20), new Vector2(400, 50), 36, Color.red, TextAlignmentOptions.TopLeft);
+
+        // 2. Health Fill Bar (มุมซ้ายบน ถัดลงมาจากข้อความ)
+        SetupHealthBar(root);
+
+        // 3. Points Text (มุมขวาบน)
+        pointsText = GetOrCreateTMPText(root, "PointsText", new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1), new Vector2(-20, -20), new Vector2(400, 50), 36, new Color(1f, 0.9f, 0.3f), TextAlignmentOptions.TopRight);
+
+        // 4. Kills Text (มุมขวาบน ถัดลงมา)
+        killsText = GetOrCreateTMPText(root, "KillsText", new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1), new Vector2(-20, -75), new Vector2(400, 40), 24, new Color(0.9f, 0.5f, 0.2f), TextAlignmentOptions.TopRight);
+
+        // 5. Ammo Text (มุมขวาล่าง)
+        ammoText = GetOrCreateTMPText(root, "AmmoText", new Vector2(1, 0), new Vector2(1, 0), new Vector2(1, 0), new Vector2(-20, 20), new Vector2(400, 50), 36, Color.white, TextAlignmentOptions.BottomRight);
+
+        // 6. Respawn Text (กลางจอ)
+        respawnText = GetOrCreateTMPText(root, "RespawnText", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(700, 120), 56, new Color(1f, 0.25f, 0.25f), TextAlignmentOptions.Center);
+        respawnText.enabled = false;
+    }
+
+    private TMP_Text GetOrCreateTMPText(Transform root, string objectName, Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot, Vector2 pos, Vector2 size, float fontSize, Color color, TextAlignmentOptions alignment)
+    {
+        Transform existing = root.Find(objectName);
+        TMP_Text tmpText = null;
+
+        if (existing != null)
+        {
+            tmpText = existing.GetComponent<TMP_Text>();
+        }
+
+        if (tmpText == null)
+        {
+            GameObject go = new GameObject(objectName, typeof(RectTransform));
+            go.transform.SetParent(root, false);
+            tmpText = go.AddComponent<TextMeshProUGUI>();
+        }
+
+        RectTransform rt = tmpText.rectTransform;
+        rt.anchorMin = anchorMin;
+        rt.anchorMax = anchorMax;
+        rt.pivot = pivot;
+        rt.anchoredPosition = pos;
+        rt.sizeDelta = size;
+
+        tmpText.fontSize = fontSize;
+        tmpText.fontStyle = FontStyles.Bold;
+        tmpText.color = color;
+        tmpText.alignment = alignment;
+
+        return tmpText;
+    }
+
+    private void SetupHealthBar(Transform root)
+    {
+        Transform fillTransform = root.Find("HealthFill");
+        if (fillTransform == null)
+        {
+            GameObject fillGo = new GameObject("HealthFill", typeof(RectTransform));
+            fillGo.transform.SetParent(root, false);
+            fillTransform = fillGo.transform;
+        }
+
+        RectTransform rt = fillTransform.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0, 1);
+        rt.anchorMax = new Vector2(0, 1);
+        rt.pivot = new Vector2(0, 1);
+        rt.anchoredPosition = new Vector2(20, -75); // ปรับตำแหน่งไม่ให้ทับกับ HealthText
+        rt.sizeDelta = new Vector2(350, 18);
+
+        healthFillImage = fillTransform.GetComponent<Image>();
+        if (healthFillImage == null)
+        {
+            healthFillImage = fillTransform.gameObject.AddComponent<Image>();
+        }
+
+        healthFillImage.color = new Color(1f, 0.25f, 0.25f, 1f);
         healthFillImage.type = Image.Type.Filled;
         healthFillImage.fillMethod = Image.FillMethod.Horizontal;
+        healthFillImage.fillAmount = 1f;
     }
 
     public void RefreshHealthUI()
     {
         if (IsLocalPlayer == false) return;
-
         if (_cachedPlayerStats == null) TryCachePlayerStats();
         if (_cachedPlayerStats == null) return;
-
-        if (healthFillImage == null) TryBindHealthFillImage();
-
-        BindOverlayHealthHud();
 
         int currentHealth = _cachedPlayerStats.Health;
         bool isDead = _cachedPlayerStats.IsDead;
@@ -243,8 +248,6 @@ public class PlayerUI : NetworkBehaviour
 
         if (healthFillImage != null)
         {
-            healthFillImage.type = Image.Type.Filled;
-            healthFillImage.fillMethod = Image.FillMethod.Horizontal;
             float healthPct = isDead ? 0f : Mathf.Clamp01((float)currentHealth / _cachedPlayerStats.MaxHealth);
             healthFillImage.fillAmount = healthPct;
         }
@@ -253,245 +256,15 @@ public class PlayerUI : NetworkBehaviour
         _lastIsDead = isDead;
     }
 
-    private void BindOverlayHealthHud()
-    {
-        if (IsLocalPlayer == false) return; // [������û�ͧ�ѹ]
-
-        GameObject hudCanvasGo = GameObject.Find("HUD_Canvas");
-        if (hudCanvasGo == null)
-        {
-            if (healthText == null || healthFillImage == null)
-            {
-                CreateDefaultUIIfMissing();
-            }
-            return;
-        }
-
-        if (healthText == null || IsWorldSpace(healthText))
-        {
-            Transform overlayHealth = hudCanvasGo.transform.Find("HealthText");
-            if (overlayHealth != null)
-            {
-                TMP_Text overlayText = overlayHealth.GetComponent<TMP_Text>();
-                if (overlayText != null) healthText = overlayText;
-            }
-        }
-
-        if (healthFillImage == null)
-        {
-            Transform overlayFill = hudCanvasGo.transform.Find("HealthFill");
-            if (overlayFill != null)
-            {
-                Image overlayImage = overlayFill.GetComponent<Image>();
-                if (overlayImage != null) healthFillImage = overlayImage;
-            }
-        }
-    }
-
-    private static bool IsWorldSpace(TMP_Text text)
-    {
-        if (text == null) return false;
-        Canvas canvas = text.GetComponentInParent<Canvas>();
-        return canvas != null && canvas.renderMode == RenderMode.WorldSpace;
-    }
-
     private int GetCurrentPoints()
     {
         if (_cachedPlayerPoints != null) return _cachedPlayerPoints.TotalPoints;
         return _cachedPlayerStats != null ? _cachedPlayerStats.Points : 0;
     }
 
-    private void CreateDefaultUIIfMissing()
-    {
-        if (IsLocalPlayer == false) return; // [������û�ͧ�ѹ]
-
-        if (healthText == null || pointsText == null || respawnText == null || killsText == null || healthFillImage == null || ammoText == null || IsWorldSpace(healthText))
-        {
-            FindOrCreateHUD();
-        }
-    }
-
-    private void FindOrCreateHUD()
-    {
-        if (IsLocalPlayer == false) return; // [������û�ͧ�ѹ]
-
-        GameObject hudCanvasGo = GameObject.Find("HUD_Canvas");
-
-        Canvas canvas;
-        if (hudCanvasGo == null)
-        {
-            hudCanvasGo = new GameObject("HUD_Canvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
-            canvas = hudCanvasGo.GetComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 100;
-
-            CanvasScaler scaler = hudCanvasGo.GetComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920, 1080);
-            scaler.matchWidthOrHeight = 0.5f;
-        }
-        else
-        {
-            canvas = hudCanvasGo.GetComponent<Canvas>();
-        }
-
-        Transform root = hudCanvasGo.transform;
-
-        // --- Health Text ---
-        if (healthText == null || IsWorldSpace(healthText))
-        {
-            Transform existingHealth = root.Find("HealthText");
-            if (existingHealth != null)
-            {
-                TMP_Text overlayText = existingHealth.GetComponent<TMP_Text>();
-                if (overlayText != null) healthText = overlayText;
-            }
-            else
-            {
-                GameObject healthGo = new GameObject("HealthText", typeof(RectTransform));
-                healthGo.transform.SetParent(root, false);
-                RectTransform rt = healthGo.GetComponent<RectTransform>();
-                rt.anchorMin = new Vector2(0, 1);
-                rt.anchorMax = new Vector2(0, 1);
-                rt.pivot = new Vector2(0, 1);
-                rt.anchoredPosition = new Vector2(20, -20);
-                rt.sizeDelta = new Vector2(400, 60);
-
-                healthText = healthGo.AddComponent<TextMeshProUGUI>();
-                healthText.fontSize = 36;
-                healthText.fontStyle = FontStyles.Bold;
-                healthText.color = new Color(1f, 0.3f, 0.3f, 1f);
-                healthText.alignment = TextAlignmentOptions.TopLeft;
-                healthText.text = "Health: 100";
-            }
-        }
-
-        // --- Points Text ---
-        if (pointsText == null || pointsText.gameObject.activeInHierarchy == false)
-        {
-            GameObject pointsGo = new GameObject("PointsText", typeof(RectTransform));
-            pointsGo.transform.SetParent(root, false);
-            RectTransform rt = pointsGo.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(1, 1);
-            rt.anchorMax = new Vector2(1, 1);
-            rt.pivot = new Vector2(1, 1);
-            rt.anchoredPosition = new Vector2(-20, -20);
-            rt.sizeDelta = new Vector2(400, 60);
-
-            pointsText = pointsGo.AddComponent<TextMeshProUGUI>();
-            pointsText.fontSize = 36;
-            pointsText.fontStyle = FontStyles.Bold;
-            pointsText.color = new Color(1f, 0.9f, 0.3f, 1f);
-            pointsText.alignment = TextAlignmentOptions.TopRight;
-            pointsText.text = $"Points: {GetCurrentPoints()}";
-        }
-
-        // --- Kills Text ---
-        if (killsText == null)
-        {
-            GameObject killsGo = new GameObject("KillsText", typeof(RectTransform));
-            killsGo.transform.SetParent(root, false);
-            RectTransform rt = killsGo.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(1, 1);
-            rt.anchorMax = new Vector2(1, 1);
-            rt.pivot = new Vector2(1, 1);
-            rt.anchoredPosition = new Vector2(-20, -80);
-            rt.sizeDelta = new Vector2(400, 40);
-
-            killsText = killsGo.AddComponent<TextMeshProUGUI>();
-            killsText.fontSize = 24;
-            killsText.fontStyle = FontStyles.Bold;
-            killsText.color = new Color(0.9f, 0.5f, 0.2f, 1f);
-            killsText.alignment = TextAlignmentOptions.TopRight;
-            killsText.text = "Kills: 0";
-        }
-
-        // --- Ammo Text ---
-        if (ammoText == null)
-        {
-            Transform existingAmmo = root.Find("AmmoText");
-            if (existingAmmo != null)
-            {
-                ammoText = existingAmmo.GetComponent<TMP_Text>();
-            }
-            else
-            {
-                GameObject ammoGo = new GameObject("AmmoText", typeof(RectTransform));
-                ammoGo.transform.SetParent(root, false);
-                RectTransform rt = ammoGo.GetComponent<RectTransform>();
-
-                rt.anchorMin = new Vector2(1, 0);
-                rt.anchorMax = new Vector2(1, 0);
-                rt.pivot = new Vector2(1, 0);
-                rt.anchoredPosition = new Vector2(-20, 20);
-                rt.sizeDelta = new Vector2(400, 60);
-
-                ammoText = ammoGo.AddComponent<TextMeshProUGUI>();
-                ammoText.fontSize = 36;
-                ammoText.fontStyle = FontStyles.Bold;
-                ammoText.color = new Color(1f, 1f, 1f, 1f);
-                ammoText.alignment = TextAlignmentOptions.BottomRight;
-                ammoText.text = "Ammo: -- / --";
-            }
-        }
-
-        // --- Respawn Text ---
-        if (respawnText == null)
-        {
-            GameObject respawnGo = new GameObject("RespawnText", typeof(RectTransform));
-            respawnGo.transform.SetParent(root, false);
-            RectTransform rt = respawnGo.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0.5f, 0.5f);
-            rt.anchorMax = new Vector2(0.5f, 0.5f);
-            rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.anchoredPosition = Vector2.zero;
-            rt.sizeDelta = new Vector2(700, 120);
-
-            respawnText = respawnGo.AddComponent<TextMeshProUGUI>();
-            respawnText.fontSize = 56;
-            respawnText.fontStyle = FontStyles.Bold;
-            respawnText.color = new Color(1f, 0.25f, 0.25f, 1f);
-            respawnText.alignment = TextAlignmentOptions.Center;
-            respawnText.text = "";
-            respawnText.enabled = false;
-        }
-
-        // --- Health Fill ---
-        if (healthFillImage == null)
-        {
-            GameObject fillGo = new GameObject("HealthFill", typeof(RectTransform));
-            fillGo.transform.SetParent(root, false);
-            RectTransform rt = fillGo.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0, 1);
-            rt.anchorMax = new Vector2(0, 1);
-            rt.pivot = new Vector2(0, 1);
-            rt.anchoredPosition = new Vector2(20, -85);
-            rt.sizeDelta = new Vector2(350, 18);
-
-            healthFillImage = fillGo.AddComponent<Image>();
-            healthFillImage.color = new Color(1f, 0.25f, 0.25f, 1f);
-            healthFillImage.type = Image.Type.Filled;
-            healthFillImage.fillMethod = Image.FillMethod.Horizontal;
-            healthFillImage.fillAmount = 1f;
-
-            GameObject borderGo = new GameObject("HealthBorder", typeof(RectTransform));
-            borderGo.transform.SetParent(fillGo.transform.parent, true);
-            borderGo.transform.SetAsFirstSibling();
-            RectTransform brt = borderGo.GetComponent<RectTransform>();
-            brt.anchorMin = new Vector2(0, 1);
-            brt.anchorMax = new Vector2(0, 1);
-            brt.pivot = new Vector2(0, 1);
-            brt.anchoredPosition = new Vector2(17, -82);
-            brt.sizeDelta = new Vector2(356, 24);
-
-            Image borderImg = borderGo.AddComponent<Image>();
-            borderImg.color = new Color(0.1f, 0.1f, 0.1f, 0.9f);
-        }
-    }
-
     private void RefreshUI(bool force)
     {
-        if (IsLocalPlayer == false) return; // [������û�ͧ�ѹ]
+        if (IsLocalPlayer == false) return;
         if (_cachedPlayerStats == null) return;
 
         RefreshHealthUI();
@@ -516,9 +289,6 @@ public class PlayerUI : NetworkBehaviour
         if (pointsText != null)
         {
             int currentPoints = GetCurrentPoints();
-            pointsText.gameObject.SetActive(true);
-            pointsText.enabled = true;
-            pointsText.alpha = 1f;
             pointsText.text = $"Points: {currentPoints}";
             _lastPoints = currentPoints;
         }
