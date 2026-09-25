@@ -1,4 +1,4 @@
-using Fusion;
+﻿using Fusion;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -144,7 +144,7 @@ public class ZombieAI : NetworkBehaviour
             for (int i = 0; i < NetworkPlayerSpawner.AllPlayers.Count; i++)
             {
                 NetworkObject playerNo = NetworkPlayerSpawner.AllPlayers[i];
-                if (playerNo == null)
+                if (playerNo == null || playerNo.IsValid == false)
                 {
                     continue;
                 }
@@ -252,7 +252,7 @@ public class ZombieAI : NetworkBehaviour
             for (int i = 0; i < NetworkPlayerSpawner.AllPlayers.Count; i++)
             {
                 NetworkObject playerNo = NetworkPlayerSpawner.AllPlayers[i];
-                if (playerNo == null)
+                if (playerNo == null || playerNo.IsValid == false)
                 {
                     continue;
                 }
@@ -272,7 +272,7 @@ public class ZombieAI : NetworkBehaviour
 
     private void ConsiderLivingPlayer(PlayerStats stats, ref PlayerStats nearest, ref float nearestSqrDistance)
     {
-        if (stats == null || stats.Object == null || stats.Object.IsValid == false || stats.IsDead)
+        if (IsPlayerValidAndAlive(stats) == false)
         {
             return;
         }
@@ -313,6 +313,15 @@ public class ZombieAI : NetworkBehaviour
         }
     }
 
+    private bool IsPlayerValidAndAlive(PlayerStats stats)
+    {
+        if (stats == null) return false;
+        if (stats.Object == null || stats.Object.IsValid == false) return false;
+        if (stats.IsDead) return false;
+
+        return true;
+    }
+
     private Transform FindNearestPlayer()
     {
         Transform nearest = null;
@@ -323,13 +332,13 @@ public class ZombieAI : NetworkBehaviour
             for (int i = 0; i < NetworkPlayerSpawner.AllPlayers.Count; i++)
             {
                 NetworkObject player = NetworkPlayerSpawner.AllPlayers[i];
-                if (player == null)
+                if (player == null || player.IsValid == false)
                 {
                     continue;
                 }
 
                 PlayerStats stats = player.GetComponent<PlayerStats>();
-                if (stats != null && stats.IsDead)
+                if (IsPlayerValidAndAlive(stats) == false)
                 {
                     continue;
                 }
@@ -348,12 +357,12 @@ public class ZombieAI : NetworkBehaviour
             }
 
             PlayerStats stats = taggedPlayer.GetComponentInParent<PlayerStats>();
-            if (stats != null && stats.IsDead)
+            if (IsPlayerValidAndAlive(stats) == false)
             {
                 continue;
             }
 
-            Transform candidate = stats != null ? stats.transform : taggedPlayer.transform;
+            Transform candidate = stats.transform;
             ConsiderCandidate(candidate.position, candidate, ref nearest, ref nearestDistance);
         }
 
