@@ -28,7 +28,6 @@ public class PlayerUI : NetworkBehaviour
 
     public override void Spawned()
     {
-        // บล็อกไม่ให้ Player ตัวอื่นที่ไม่ใช่เครื่องเรายุ่งกับ UI
         if (IsLocalPlayer == false)
         {
             enabled = false;
@@ -39,7 +38,10 @@ public class PlayerUI : NetworkBehaviour
         TryCachePlayerPoints();
         TryCachePlayerWeapon();
 
-        // เคลียร์และผูก UI ใหม่ให้ถูกต้องเพียงตัวเดียว
+        // 🟢 ลบ UI เก่าที่ตกค้างใน Scene ทิ้งทั้งหมด
+        CleanupLegacyUI();
+
+        // 🟢 สร้างและตั้งค่า HUD Canvas ใหม่ให้หลอดเลือดอยู่มุมซ้ายล่าง
         SetupHUDCanvas();
 
         RefreshHealthUI();
@@ -130,7 +132,24 @@ public class PlayerUI : NetworkBehaviour
         return changed;
     }
 
-    // 🟢 [จัดการสปอว์น/ผูกกับ HUD_Canvas เพียงตัวเดียวเพื่อป้องกันการสร้างซ้ำซ้อน]
+    // 🔴 [ลบ UI เก่าๆ ที่วางค้างไว้ใน Scene ออกเพื่อไม่ให้ซ้อนกัน]
+    private void CleanupLegacyUI()
+    {
+        // ค้นหา Text เก่าๆ เช่น "HealthText" เก่า หรือข้อความที่ลอยอยู่ล่างจอแล้วสั่งลบ
+        TMP_Text[] allTexts = FindObjectsByType<TMP_Text>(FindObjectsSortMode.None);
+        foreach (TMP_Text txt in allTexts)
+        {
+            if (txt == null) continue;
+
+            // ถ้าเจอข้อความตัวอักษร Health เก่าที่ไม่ได้อยู่ใน HUD_Canvas ใหม่ ให้ทำลายทิ้ง
+            if (txt.name.Contains("Health") && (txt.transform.parent == null || txt.transform.parent.name != "HUD_Canvas"))
+            {
+                Destroy(txt.gameObject);
+            }
+        }
+    }
+
+    // 🟢 [เซ็ตระบบ HUD_Canvas ใหม่: ย้ายหลอดเลือดมาไว้มุมซ้ายล่าง]
     private void SetupHUDCanvas()
     {
         if (IsLocalPlayer == false) return;
@@ -151,23 +170,78 @@ public class PlayerUI : NetworkBehaviour
 
         Transform root = hudCanvasGo.transform;
 
-        // 1. Health Text (มุมซ้ายบน)
-        healthText = GetOrCreateTMPText(root, "HealthText", new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), new Vector2(20, -20), new Vector2(400, 50), 36, Color.red, TextAlignmentOptions.TopLeft);
+        // 1. Health Text (ปรับให้ย้ายลงมาอยู่ มุมซ้ายล่าง Bottom-Left)
+        healthText = GetOrCreateTMPText(
+            root,
+            "HealthText",
+            new Vector2(0, 0), // Anchor: Bottom-Left
+            new Vector2(0, 0),
+            new Vector2(0, 0),
+            new Vector2(20, 60), // Pos: สูงจากขอบล่าง 60px
+            new Vector2(400, 50),
+            36,
+            new Color(1f, 0.3f, 0.3f, 1f),
+            TextAlignmentOptions.BottomLeft
+        );
 
-        // 2. Health Fill Bar (มุมซ้ายบน ถัดลงมาจากข้อความ)
+        // 2. Health Fill Bar (ย้ายลงมาอยู่ใต้ Health Text ที่มุมซ้ายล่าง)
         SetupHealthBar(root);
 
         // 3. Points Text (มุมขวาบน)
-        pointsText = GetOrCreateTMPText(root, "PointsText", new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1), new Vector2(-20, -20), new Vector2(400, 50), 36, new Color(1f, 0.9f, 0.3f), TextAlignmentOptions.TopRight);
+        pointsText = GetOrCreateTMPText(
+            root,
+            "PointsText",
+            new Vector2(1, 1),
+            new Vector2(1, 1),
+            new Vector2(1, 1),
+            new Vector2(-20, -20),
+            new Vector2(400, 50),
+            36,
+            new Color(1f, 0.9f, 0.3f),
+            TextAlignmentOptions.TopRight
+        );
 
-        // 4. Kills Text (มุมขวาบน ถัดลงมา)
-        killsText = GetOrCreateTMPText(root, "KillsText", new Vector2(1, 1), new Vector2(1, 1), new Vector2(1, 1), new Vector2(-20, -75), new Vector2(400, 40), 24, new Color(0.9f, 0.5f, 0.2f), TextAlignmentOptions.TopRight);
+        // 4. Kills Text (มุมขวาบน ถัดลงมาจาก Points)
+        killsText = GetOrCreateTMPText(
+            root,
+            "KillsText",
+            new Vector2(1, 1),
+            new Vector2(1, 1),
+            new Vector2(1, 1),
+            new Vector2(-20, -75),
+            new Vector2(400, 40),
+            24,
+            new Color(0.9f, 0.5f, 0.2f),
+            TextAlignmentOptions.TopRight
+        );
 
         // 5. Ammo Text (มุมขวาล่าง)
-        ammoText = GetOrCreateTMPText(root, "AmmoText", new Vector2(1, 0), new Vector2(1, 0), new Vector2(1, 0), new Vector2(-20, 20), new Vector2(400, 50), 36, Color.white, TextAlignmentOptions.BottomRight);
+        ammoText = GetOrCreateTMPText(
+            root,
+            "AmmoText",
+            new Vector2(1, 0),
+            new Vector2(1, 0),
+            new Vector2(1, 0),
+            new Vector2(-20, 20),
+            new Vector2(400, 50),
+            36,
+            Color.white,
+            TextAlignmentOptions.BottomRight
+        );
 
         // 6. Respawn Text (กลางจอ)
-        respawnText = GetOrCreateTMPText(root, "RespawnText", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(700, 120), 56, new Color(1f, 0.25f, 0.25f), TextAlignmentOptions.Center);
+        respawnText = GetOrCreateTMPText(
+            root,
+            "RespawnText",
+            new Vector2(0.5f, 0.5f),
+            new Vector2(0.5f, 0.5f),
+            new Vector2(0.5f, 0.5f),
+            Vector2.zero,
+            new Vector2(700, 120),
+            56,
+            new Color(1f, 0.25f, 0.25f),
+            TextAlignmentOptions.Center
+        );
         respawnText.enabled = false;
     }
 
@@ -214,11 +288,11 @@ public class PlayerUI : NetworkBehaviour
         }
 
         RectTransform rt = fillTransform.GetComponent<RectTransform>();
-        rt.anchorMin = new Vector2(0, 1);
-        rt.anchorMax = new Vector2(0, 1);
-        rt.pivot = new Vector2(0, 1);
-        rt.anchoredPosition = new Vector2(20, -75); // ปรับตำแหน่งไม่ให้ทับกับ HealthText
-        rt.sizeDelta = new Vector2(350, 18);
+        rt.anchorMin = new Vector2(0, 0); // Anchor: Bottom-Left
+        rt.anchorMax = new Vector2(0, 0);
+        rt.pivot = new Vector2(0, 0);
+        rt.anchoredPosition = new Vector2(20, 25); // สูงจากขอบล่าง 25px (อยู่ใต้ Health Text เป๊ะๆ)
+        rt.sizeDelta = new Vector2(350, 20);
 
         healthFillImage = fillTransform.GetComponent<Image>();
         if (healthFillImage == null)
