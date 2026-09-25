@@ -13,32 +13,33 @@ public class PlayerUI : NetworkBehaviour
     [SerializeField] private Image healthFillImage;
     [SerializeField] private TMP_Text killsText;
     [SerializeField] private TMP_Text respawnText;
-
-    // [เพิ่มจุดที่ 1]: ตัวแปรสำหรับ Ammo UI
     [SerializeField] private TMP_Text ammoText;
 
     private PlayerStats _cachedPlayerStats;
     private PlayerPoints _cachedPlayerPoints;
-    private PlayerWeapon _cachedPlayerWeapon; // [เพิ่มจุดที่ 2]: Cache PlayerWeapon Component
+    private PlayerWeapon _cachedPlayerWeapon;
 
     private int _lastHealth = -1;
     private int _lastPoints = -1;
     private int _lastKills = -1;
-    private int _lastAmmo = -1; // [เพิ่มจุดที่ 3]: เก็บค่ากระสุนล่าสุด
+    private int _lastAmmo = -1;
     private bool _lastIsDead = false;
     private float _lastRespawnSeconds = -1f;
     private const string HealthFillObjectName = "Image";
 
     public override void Spawned()
     {
-        TryCachePlayerStats();
-        TryCachePlayerPoints();
-        TryCachePlayerWeapon(); // [เพิ่มจุดที่ 4]: ดึง Component PlayerWeapon
-
+        // [จุดแก้สำคัญที่ 1]: ถ้าไม่ใช่ Local Player ให้ปิดสคริปต์ PlayerUI ของตัวละครตัวนี้ทิ้งไปเลย
+        // เพื่อป้องกันไม่ให้ตัวละครคนอื่นมาดึง HUD_Canvas บนหน้าจอเราไปควบคุม
         if (IsLocalPlayer == false)
         {
+            enabled = false;
             return;
         }
+
+        TryCachePlayerStats();
+        TryCachePlayerPoints();
+        TryCachePlayerWeapon();
 
         TryBindHealthFillImage();
         CreateDefaultUIIfMissing();
@@ -59,7 +60,7 @@ public class PlayerUI : NetworkBehaviour
 
         if (_cachedPlayerStats == null) TryCachePlayerStats();
         if (_cachedPlayerPoints == null) TryCachePlayerPoints();
-        if (_cachedPlayerWeapon == null) TryCachePlayerWeapon(); // Cache เพิ่มใน Render
+        if (_cachedPlayerWeapon == null) TryCachePlayerWeapon();
 
         if (_cachedPlayerStats == null)
         {
@@ -72,6 +73,8 @@ public class PlayerUI : NetworkBehaviour
 
     private void ForceSetupPointsUI()
     {
+        if (IsLocalPlayer == false) return; // [เพิ่มการป้องกัน]
+
         if (pointsText == null)
         {
             Debug.LogError("[PlayerUI] ForceSetupPointsUI: pointsText is NULL!");
@@ -154,7 +157,6 @@ public class PlayerUI : NetworkBehaviour
         if (_cachedPlayerStats.Kills != _lastKills) changed = true;
         if (_cachedPlayerStats.IsDead != _lastIsDead) changed = true;
 
-        // [เพิ่มจุดที่ 5]: เช็กความเปลี่ยนแปลงของจำนวนกระสุน
         if (_cachedPlayerWeapon != null && _cachedPlayerWeapon.CurrentAmmo != _lastAmmo)
         {
             changed = true;
@@ -185,7 +187,6 @@ public class PlayerUI : NetworkBehaviour
         }
     }
 
-    // [เพิ่มจุดที่ 6]: ฟังก์ชัน Cache PlayerWeapon
     private void TryCachePlayerWeapon()
     {
         if (_cachedPlayerWeapon == null)
@@ -198,12 +199,15 @@ public class PlayerUI : NetworkBehaviour
     {
         get
         {
-            return Object != null && Object.IsValid && (HasInputAuthority || HasStateAuthority);
+            // [จุดแก้สำคัญที่ 2]: ใน Photon Fusion โหมด Shared/Host ตัวละครของเครื่องเราเองจะมี HasInputAuthority = true
+            return Object != null && Object.IsValid && HasInputAuthority;
         }
     }
 
     private void TryBindHealthFillImage()
     {
+        if (IsLocalPlayer == false) return;
+
         GameObject healthFillObject = GameObject.Find(HealthFillObjectName);
         if (healthFillObject == null) healthFillObject = GameObject.Find("HealthFill");
         if (healthFillObject == null) healthFillObject = GameObject.Find("Fill");
@@ -251,6 +255,8 @@ public class PlayerUI : NetworkBehaviour
 
     private void BindOverlayHealthHud()
     {
+        if (IsLocalPlayer == false) return; // [เพิ่มการป้องกัน]
+
         GameObject hudCanvasGo = GameObject.Find("HUD_Canvas");
         if (hudCanvasGo == null)
         {
@@ -297,6 +303,8 @@ public class PlayerUI : NetworkBehaviour
 
     private void CreateDefaultUIIfMissing()
     {
+        if (IsLocalPlayer == false) return; // [เพิ่มการป้องกัน]
+
         if (healthText == null || pointsText == null || respawnText == null || killsText == null || healthFillImage == null || ammoText == null || IsWorldSpace(healthText))
         {
             FindOrCreateHUD();
@@ -305,6 +313,8 @@ public class PlayerUI : NetworkBehaviour
 
     private void FindOrCreateHUD()
     {
+        if (IsLocalPlayer == false) return; // [เพิ่มการป้องกัน]
+
         GameObject hudCanvasGo = GameObject.Find("HUD_Canvas");
 
         Canvas canvas;
@@ -396,7 +406,7 @@ public class PlayerUI : NetworkBehaviour
             killsText.text = "Kills: 0";
         }
 
-        // [เพิ่มจุดที่ 7]: สั่งสร้าง AmmoText บริเวณมุมขวาล่าง
+        // --- Ammo Text ---
         if (ammoText == null)
         {
             Transform existingAmmo = root.Find("AmmoText");
@@ -410,17 +420,16 @@ public class PlayerUI : NetworkBehaviour
                 ammoGo.transform.SetParent(root, false);
                 RectTransform rt = ammoGo.GetComponent<RectTransform>();
 
-                // Anchor = มุมขวาล่าง (Bottom-Right)
                 rt.anchorMin = new Vector2(1, 0);
                 rt.anchorMax = new Vector2(1, 0);
                 rt.pivot = new Vector2(1, 0);
-                rt.anchoredPosition = new Vector2(-20, 20); // ระยะห่างจากขอบขวาและขอบล่าง
+                rt.anchoredPosition = new Vector2(-20, 20);
                 rt.sizeDelta = new Vector2(400, 60);
 
                 ammoText = ammoGo.AddComponent<TextMeshProUGUI>();
                 ammoText.fontSize = 36;
                 ammoText.fontStyle = FontStyles.Bold;
-                ammoText.color = new Color(1f, 1f, 1f, 1f); // สีขาว
+                ammoText.color = new Color(1f, 1f, 1f, 1f);
                 ammoText.alignment = TextAlignmentOptions.BottomRight;
                 ammoText.text = "Ammo: -- / --";
             }
@@ -482,6 +491,7 @@ public class PlayerUI : NetworkBehaviour
 
     private void RefreshUI(bool force)
     {
+        if (IsLocalPlayer == false) return; // [เพิ่มการป้องกัน]
         if (_cachedPlayerStats == null) return;
 
         RefreshHealthUI();
@@ -522,12 +532,10 @@ public class PlayerUI : NetworkBehaviour
             }
         }
 
-        // [เพิ่มจุดที่ 8]: อัปเดตข้อความจำนวนกระสุนบน UI
         if (ammoText != null)
         {
             if (_cachedPlayerWeapon != null)
             {
-                // ถ้ากำลัง Reload ให้ขึ้นแสดง RELOADING...
                 if (_cachedPlayerWeapon.IsReloading)
                 {
                     ammoText.text = "RELOADING...";
