@@ -390,24 +390,32 @@ public class PlayerWeapon : NetworkBehaviour
                 ZombieAI zombie = hit.collider.GetComponentInParent<ZombieAI>();
                 if (zombie != null)
                 {
-                    PlayerRef shooterPlayerRef = Object.InputAuthority;
-                    int currentDamage = Damage > 0 ? Damage : damage;
-                    zombie.RPC_RequestDamage(currentDamage, shooterPlayerRef);
+                    // [แก้ไขเพิ่มบรรทัดนี้]: ตรวจสอบว่า Zombie มี NetworkObject และ Spawn สมบูรณ์บน Network แล้วหรือยัง
+                    if (zombie.Object != null && zombie.Object.IsValid)
+                    {
+                        PlayerRef shooterPlayerRef = Object.InputAuthority;
+                        int currentDamage = Damage > 0 ? Damage : damage;
+                        zombie.RPC_RequestDamage(currentDamage, shooterPlayerRef);
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[PlayerWeapon] Shot hit Zombie '{zombie.name}', but it's not spawned on Fusion Network!");
+                    }
                 }
             }
-        }
 
-        if (_laserLine != null && HasInputAuthority)
-        {
-            _laserLine.useWorldSpace = true;
-            _laserLine.SetPosition(0, fireOrigin);
-            _laserLine.SetPosition(1, endPosition);
-            _laserLine.enabled = true;
-        }
+            if (_laserLine != null && HasInputAuthority)
+            {
+                _laserLine.useWorldSpace = true;
+                _laserLine.SetPosition(0, fireOrigin);
+                _laserLine.SetPosition(1, endPosition);
+                _laserLine.enabled = true;
+            }
 
-        if (applyDamage)
-        {
-            RPC_RenderShotEffect(fireOrigin, direction);
+            if (applyDamage)
+            {
+                RPC_RenderShotEffect(fireOrigin, direction);
+            }
         }
     }
 
