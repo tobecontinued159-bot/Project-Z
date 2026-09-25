@@ -55,11 +55,10 @@ public class PlayerUI : NetworkBehaviour
             return;
         }
 
-        if (_cachedPlayerStats == null) TryCachePlayerStats();
-        if (_cachedPlayerPoints == null) TryCachePlayerPoints();
-        if (_cachedPlayerWeapon == null) TryCachePlayerWeapon();
-
-        if (_cachedPlayerStats == null) return;
+        if (TryBindLocalHud() == false)
+        {
+            return;
+        }
 
         RefreshHealthUI();
         RefreshUI(force: false);
@@ -72,16 +71,39 @@ public class PlayerUI : NetworkBehaviour
             return;
         }
 
-        if (_cachedPlayerStats == null) TryCachePlayerStats();
-        if (_cachedPlayerPoints == null) TryCachePlayerPoints();
-        if (_cachedPlayerWeapon == null) TryCachePlayerWeapon();
-
-        if (_cachedPlayerStats == null) return;
+        if (TryBindLocalHud() == false)
+        {
+            return;
+        }
 
         if (HasChanged())
         {
             RefreshUI(force: false);
         }
+    }
+
+    private bool TryBindLocalHud()
+    {
+        if (_cachedPlayerStats == null) TryCachePlayerStats();
+        if (_cachedPlayerPoints == null) TryCachePlayerPoints();
+        if (_cachedPlayerWeapon == null) TryCachePlayerWeapon();
+
+        if (_cachedPlayerStats == null || _cachedPlayerStats.Object == null || _cachedPlayerStats.Object.IsValid == false)
+        {
+            return false;
+        }
+
+        if (_cachedPlayerPoints != null && (_cachedPlayerPoints.Object == null || _cachedPlayerPoints.Object.IsValid == false))
+        {
+            return false;
+        }
+
+        if (_cachedPlayerWeapon != null && (_cachedPlayerWeapon.Object == null || _cachedPlayerWeapon.Object.IsValid == false))
+        {
+            return false;
+        }
+
+        return true;
     }
 
     private bool IsLocalPlayer
@@ -109,7 +131,7 @@ public class PlayerUI : NetworkBehaviour
 
     private bool HasChanged()
     {
-        if (_cachedPlayerStats == null) return false;
+        if (_cachedPlayerStats == null || _cachedPlayerStats.Object == null || _cachedPlayerStats.Object.IsValid == false) return false;
 
         bool changed = false;
 
@@ -310,7 +332,7 @@ public class PlayerUI : NetworkBehaviour
     {
         if (IsLocalPlayer == false) return;
         if (_cachedPlayerStats == null) TryCachePlayerStats();
-        if (_cachedPlayerStats == null) return;
+        if (_cachedPlayerStats == null || _cachedPlayerStats.Object == null || _cachedPlayerStats.Object.IsValid == false) return;
 
         int currentHealth = _cachedPlayerStats.Health;
         bool isDead = _cachedPlayerStats.IsDead;
@@ -339,7 +361,7 @@ public class PlayerUI : NetworkBehaviour
     private void RefreshUI(bool force)
     {
         if (IsLocalPlayer == false) return;
-        if (_cachedPlayerStats == null) return;
+        if (_cachedPlayerStats == null || _cachedPlayerStats.Object == null || _cachedPlayerStats.Object.IsValid == false) return;
 
         RefreshHealthUI();
 

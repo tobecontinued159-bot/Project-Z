@@ -276,6 +276,11 @@ public class PlayerWeapon : NetworkBehaviour
 
     private void LateUpdate()
     {
+        if (Object == null || Object.IsValid == false)
+        {
+            return;
+        }
+
         if (EnsureStats() && _cachedStats.IsDead)
         {
             if (_laserLine != null) _laserLine.enabled = false;
@@ -347,7 +352,10 @@ public class PlayerWeapon : NetworkBehaviour
         {
             _cachedStats = GetComponent<PlayerStats>();
         }
-        return _cachedStats != null;
+
+        return _cachedStats != null
+            && _cachedStats.Object != null
+            && _cachedStats.Object.IsValid;
     }
 
     private void SetupLaserSight()

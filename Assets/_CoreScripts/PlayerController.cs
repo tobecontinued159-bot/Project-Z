@@ -36,7 +36,9 @@ public class PlayerController : NetworkBehaviour
             _cachedStats = GetComponent<PlayerStats>();
         }
 
-        return _cachedStats != null;
+        return _cachedStats != null
+            && _cachedStats.Object != null
+            && _cachedStats.Object.IsValid;
     }
 
     private void MovePlayer(Vector2 moveInput)

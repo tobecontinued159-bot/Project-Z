@@ -122,6 +122,11 @@ public class PlayerStats : NetworkBehaviour
 
     public override void Render()
     {
+        if (Object == null || Object.IsValid == false)
+        {
+            return;
+        }
+
         RefreshVisuals();
     }
 
