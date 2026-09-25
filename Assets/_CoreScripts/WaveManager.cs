@@ -19,14 +19,35 @@ public class WaveManager : NetworkBehaviour
     [SerializeField] private float breakDuration = 10f;
     [SerializeField] private float spawnInterval = 0.75f;
     [SerializeField] private int zombiesPerWave = 5;
+    [SerializeField] private float minSpawnInterval = 0.25f;
 
     public static WaveManager Instance { get; private set; }
+
+    private int _nextSpawnPointIndex;
+
+    public float RemainingBreakSeconds
+    {
+        get
+        {
+            if (Runner == null || IsBreakTime == false)
+            {
+                return 0f;
+            }
+
+            return BreakTimer.RemainingTime(Runner) ?? 0f;
+        }
+    }
+
+    public int GetZombieCountForWave(int wave)
+    {
+        return Mathf.Max(0, wave) * Mathf.Max(1, zombiesPerWave);
+    }
 
     public override void Spawned()
     {
         Instance = this;
 
-        if (HasStateAuthority == false)
+        if (CanRunMasterLogic() == false)
         {
             return;
         }
@@ -34,24 +55,10 @@ public class WaveManager : NetworkBehaviour
         CurrentWave = 0;
         ZombiesRemaining = 0;
         ZombiesLeftToSpawn = 0;
-
-        IsBreakTime = true;
-
-        BreakTimer = TickTimer.CreateFromSeconds(
-            Runner,
-            breakDuration
-        );
-
-        SpawnTimer = TickTimer.None;
-
-        Debug.Log(
-            $"WaveManager: Break time started ({breakDuration}s)."
-        );
+        StartBreakTime();
     }
 
-    public override void Despawned(
-        NetworkRunner runner,
-        bool hasState)
+    public override void Despawned(NetworkRunner runner, bool hasState)
     {
         if (Instance == this)
         {
@@ -61,14 +68,10 @@ public class WaveManager : NetworkBehaviour
 
     public override void FixedUpdateNetwork()
     {
-        if (HasStateAuthority == false)
+        if (CanRunMasterLogic() == false)
         {
             return;
         }
-
-        // ================================
-        // BREAK TIME
-        // ================================
 
         if (IsBreakTime)
         {
@@ -80,55 +83,34 @@ public class WaveManager : NetworkBehaviour
             return;
         }
 
-        // ================================
-        // SPAWN ZOMBIES
-        // ================================
-
-        if (ZombiesLeftToSpawn > 0 &&
-            SpawnTimer.ExpiredOrNotRunning(Runner))
+        if (ZombiesLeftToSpawn > 0 && SpawnTimer.ExpiredOrNotRunning(Runner))
         {
-            bool spawned = SpawnOneZombie();
-
-            // ลดจำนวนเฉพาะตอน Spawn สำเร็จ
-            if (spawned)
+            if (SpawnOneZombie())
             {
                 ZombiesLeftToSpawn--;
-
-                SpawnTimer = TickTimer.CreateFromSeconds(
-                    Runner,
-                    spawnInterval
-                );
+                ZombiesRemaining++;
+                SpawnTimer = TickTimer.CreateFromSeconds(Runner, GetCurrentSpawnInterval());
             }
             else
             {
-                // ถ้า Spawn ไม่สำเร็จ
-                // ลองใหม่ใน Tick ถัดไป
-                SpawnTimer = TickTimer.CreateFromSeconds(
-                    Runner,
-                    0.25f
-                );
+                SpawnTimer = TickTimer.CreateFromSeconds(Runner, 0.25f);
             }
         }
 
-        // ================================
-        // WAVE COMPLETE
-        // ================================
-
-        if (CurrentWave > 0 &&
-            ZombiesLeftToSpawn <= 0 &&
-            ZombiesRemaining <= 0)
+        if (CurrentWave > 0 && ZombiesLeftToSpawn <= 0 && ZombiesRemaining <= 0)
         {
             StartBreakTime();
         }
     }
 
-    // =========================================================
-    // ZOMBIE DIED
-    // =========================================================
-
     public void OnZombieDied()
     {
-        if (HasStateAuthority)
+        if (Object == null || Object.IsValid == false)
+        {
+            return;
+        }
+
+        if (Object.HasStateAuthority)
         {
             ApplyZombieDied();
             return;
@@ -137,162 +119,93 @@ public class WaveManager : NetworkBehaviour
         RPC_NotifyZombieDied();
     }
 
-    [Rpc(
-        RpcSources.All,
-        RpcTargets.StateAuthority,
-        Channel = RpcChannel.Reliable
-    )]
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
     private void RPC_NotifyZombieDied()
     {
-        if (HasStateAuthority == false)
-        {
-            return;
-        }
-
         ApplyZombieDied();
     }
 
     private void ApplyZombieDied()
     {
-        ZombiesRemaining = Mathf.Max(
-            0,
-            ZombiesRemaining - 1
-        );
+        if (CanRunMasterLogic() == false)
+        {
+            return;
+        }
 
-        Debug.Log(
-            $"Wave {CurrentWave}: zombie died. " +
-            $"Remaining: {ZombiesRemaining}"
-        );
+        ZombiesRemaining = Mathf.Max(0, ZombiesRemaining - 1);
+        Debug.Log($"Wave {CurrentWave}: zombie died. Remaining: {ZombiesRemaining}");
     }
-
-    // =========================================================
-    // START NEXT WAVE
-    // =========================================================
 
     private void StartNextWave()
     {
         CurrentWave++;
 
-        int zombieCount =
-            CurrentWave * zombiesPerWave;
-
-        ZombiesRemaining = zombieCount;
+        int zombieCount = GetZombieCountForWave(CurrentWave);
         ZombiesLeftToSpawn = zombieCount;
-
+        ZombiesRemaining = 0;
         IsBreakTime = false;
         SpawnTimer = TickTimer.None;
 
-        Debug.Log(
-            $"Wave {CurrentWave} started. " +
-            $"Zombies: {zombieCount}"
-        );
+        Debug.Log($"Wave {CurrentWave} started. Zombies: {zombieCount}");
     }
-
-    // =========================================================
-    // START BREAK
-    // =========================================================
 
     private void StartBreakTime()
     {
         IsBreakTime = true;
-
-        BreakTimer = TickTimer.CreateFromSeconds(
-            Runner,
-            breakDuration
-        );
-
+        ZombiesLeftToSpawn = 0;
+        BreakTimer = TickTimer.CreateFromSeconds(Runner, breakDuration);
         SpawnTimer = TickTimer.None;
 
-        Debug.Log(
-            $"Wave {CurrentWave} cleared. " +
-            $"Break time ({breakDuration}s)."
-        );
-    }
+        if (CurrentWave <= 0)
+        {
+            Debug.Log($"WaveManager: first break ({breakDuration}s) before Wave 1.");
+            return;
+        }
 
-    // =========================================================
-    // SPAWN ZOMBIE
-    // =========================================================
+        Debug.Log($"Wave {CurrentWave} cleared. Break time ({breakDuration}s).");
+    }
 
     private bool SpawnOneZombie()
     {
-        // -----------------------------------------
-        // 1. Get random spawn point
-        // -----------------------------------------
+        if (zombiePrefab == null)
+        {
+            Debug.LogError("WaveManager: zombiePrefab is not assigned.");
+            return false;
+        }
 
-        Transform spawnPoint = GetRandomSpawnPoint();
-
+        Transform spawnPoint = GetNextSpawnPoint();
         if (spawnPoint == null)
         {
-            Debug.LogError(
-                "[WaveManager] No valid zombie spawn point found."
-            );
-
+            Debug.LogError("WaveManager: no valid zombie spawn point assigned.");
             return false;
         }
 
-        Vector3 spawnPosition = spawnPoint.position;
-
-        // -----------------------------------------
-        // 2. Find nearest NavMesh position
-        // -----------------------------------------
-
-        if (!TryGetNavMeshPosition(
-            spawnPosition,
-            out Vector3 validPosition))
+        if (TryGetNavMeshPosition(spawnPoint.position, out Vector3 spawnPosition) == false)
         {
-            Debug.LogError(
-                $"[WaveManager] Cannot spawn Zombie. " +
-                $"Spawn point '{spawnPoint.name}' " +
-                $"is not near NavMesh. " +
-                $"Position = {spawnPosition}"
-            );
-
+            Debug.LogError($"WaveManager: spawn point '{spawnPoint.name}' is not near a NavMesh. Position={spawnPoint.position}");
             return false;
         }
 
-        // -----------------------------------------
-        // 3. Spawn through Fusion
-        // -----------------------------------------
-
-        NetworkObject zombie = Runner.Spawn(
-            zombiePrefab,
-            validPosition,
-            Quaternion.identity
-        );
-
+        NetworkObject zombie = Runner.Spawn(zombiePrefab, spawnPosition, spawnPoint.rotation);
         if (zombie == null)
         {
-            Debug.LogError(
-                "[WaveManager] Runner.Spawn returned null. " +
-                "Check that the zombie prefab is registered " +
-                "as a NetworkObject."
-            );
-
+            Debug.LogError("WaveManager: Runner.Spawn returned null. Bake the zombie prefab as a NetworkObject.");
             return false;
         }
 
-        Debug.Log(
-            $"[WaveManager] Zombie spawned. " +
-            $"SpawnPoint={spawnPoint.name} | " +
-            $"Position={validPosition}"
-        );
-
+        Debug.Log($"WaveManager: spawned zombie at {spawnPoint.name} ({spawnPosition}).");
         return true;
     }
 
-    // =========================================================
-    // NAVMESH POSITION
-    // =========================================================
-
-    private bool TryGetNavMeshPosition(
-        Vector3 sourcePosition,
-        out Vector3 navMeshPosition)
+    private float GetCurrentSpawnInterval()
     {
-        if (NavMesh.SamplePosition(
-            sourcePosition,
-            out NavMeshHit hit,
-            3f,
-            NavMesh.AllAreas))
+        float fasterPerWave = 0.05f * Mathf.Max(0, CurrentWave - 1);
+        return Mathf.Max(minSpawnInterval, spawnInterval - fasterPerWave);
+    }
+
+    private bool TryGetNavMeshPosition(Vector3 sourcePosition, out Vector3 navMeshPosition)
+    {
+        if (NavMesh.SamplePosition(sourcePosition, out NavMeshHit hit, 8f, NavMesh.AllAreas))
         {
             navMeshPosition = hit.position;
             return true;
@@ -302,20 +215,14 @@ public class WaveManager : NetworkBehaviour
         return false;
     }
 
-    // =========================================================
-    // RANDOM SPAWN POINT
-    // =========================================================
-
-    private Transform GetRandomSpawnPoint()
+    private Transform GetNextSpawnPoint()
     {
-        if (spawnPoints == null ||
-            spawnPoints.Length == 0)
+        if (spawnPoints == null || spawnPoints.Length == 0)
         {
             return null;
         }
 
         int validCount = 0;
-
         for (int i = 0; i < spawnPoints.Length; i++)
         {
             if (spawnPoints[i] != null)
@@ -329,24 +236,23 @@ public class WaveManager : NetworkBehaviour
             return null;
         }
 
-        int targetIndex =
-            Random.Range(0, validCount);
-
-        for (int i = 0; i < spawnPoints.Length; i++)
+        for (int attempt = 0; attempt < spawnPoints.Length; attempt++)
         {
-            if (spawnPoints[i] == null)
-            {
-                continue;
-            }
+            int index = _nextSpawnPointIndex % spawnPoints.Length;
+            _nextSpawnPointIndex++;
 
-            if (targetIndex == 0)
+            Transform spawnPoint = spawnPoints[index];
+            if (spawnPoint != null)
             {
-                return spawnPoints[i];
+                return spawnPoint;
             }
-
-            targetIndex--;
         }
 
         return null;
+    }
+
+    private bool CanRunMasterLogic()
+    {
+        return Object != null && Object.IsValid && Object.HasStateAuthority;
     }
 }

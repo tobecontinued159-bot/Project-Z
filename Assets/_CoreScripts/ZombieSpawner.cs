@@ -29,6 +29,11 @@ public class ZombieSpawner : MonoBehaviour
             return;
         }
 
+        if (WaveManager.Instance != null)
+        {
+            return;
+        }
+
         if (IsSpawnMaster() == false)
         {
             return;

@@ -19,13 +19,17 @@ public class PlayerWeapon : NetworkBehaviour
 
     [Header("Ammo & Reload Settings")]
     [SerializeField] private int maxAmmo = 30;
-    [SerializeField] private float reloadTime = 2f; // [เพิ่มจุดที่ 1]: ตั้งเวลารีโหลด 2 วินาที
+
+    [SerializeField] private int maxReserveAmmo = 90;
+
 
     [Networked] public int Damage { get; set; }
     [Networked] public float FireRate { get; set; }
     [Networked] public int CurrentAmmo { get; set; }
-    [Networked] public NetworkBool IsReloading { get; set; } // [เพิ่มจุดที่ 2]: ตัวแปรบอกสถานะ Reload
-    [Networked] private TickTimer ReloadTimer { get; set; }  // [เพิ่มจุดที่ 3]: ตัวจับเวลา Reload 2 วินาที
+
+
+    [Networked] public int ReserveAmmo { get; set; }
+ 
     [Networked] private NetworkBool DamageBuffActive { get; set; }
     [Networked] private TickTimer DamageBuffTimer { get; set; }
     [Networked] private int UnbuffedDamage { get; set; }
@@ -53,8 +57,8 @@ public class PlayerWeapon : NetworkBehaviour
             Damage = damage;
             FireRate = fireRate;
             CurrentAmmo = maxAmmo;
-            IsReloading = false;
-            ReloadTimer = TickTimer.None;
+
+            ReserveAmmo = maxReserveAmmo;
             DamageBuffActive = false;
             DamageBuffTimer = TickTimer.None;
             UnbuffedDamage = damage;
@@ -95,11 +99,7 @@ public class PlayerWeapon : NetworkBehaviour
             return;
         }
 
-        if (IsReloading || CurrentAmmo >= maxAmmo) return;
-
-        IsReloading = true;
-        ReloadTimer = TickTimer.CreateFromSeconds(Runner, reloadTime);
-        Debug.Log($"{name} started reloading ({reloadTime}s)...");
+        FillAmmoToMax();
     }
 
     [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
@@ -108,16 +108,15 @@ public class PlayerWeapon : NetworkBehaviour
         if (HasStateAuthority == false) return;
         if (IsReloading || CurrentAmmo >= maxAmmo) return;
 
-        IsReloading = true;
-        ReloadTimer = TickTimer.CreateFromSeconds(Runner, reloadTime);
+        FillAmmoToMax();
     }
 
-    private void CompleteReload()
+    private void FillAmmoToMax()
     {
-        CurrentAmmo = maxAmmo;
-        IsReloading = false;
-        ReloadTimer = TickTimer.None;
-        Debug.Log($"{name} reload completed!");
+        CurrentAmmo = Mathf.Max(1, maxAmmo);
+        ReserveAmmo = Mathf.Max(0, maxReserveAmmo);
+        Debug.Log($"{name} ammo refilled: {CurrentAmmo}/{ReserveAmmo}");
+
     }
 
     public void ApplyDamageBuff(float duration, int multiplier)
