@@ -18,6 +18,7 @@ public class PlayerWeapon : NetworkBehaviour
     [SerializeField] private float minFireRate = 0.08f;
 
     [Header("Ammo & Reload Settings")]
+    [SerializeField] private int weaponId = 0;
     [SerializeField] private int maxAmmo = 30;
     [SerializeField] private int maxReserveAmmo = 90;
     [SerializeField] private float reloadDuration = 2f;
@@ -26,13 +27,22 @@ public class PlayerWeapon : NetworkBehaviour
     [Networked] public float FireRate { get; set; }
     [Networked] public int CurrentAmmo { get; set; }
     [Networked] public int ReserveAmmo { get; set; }
+    [Networked] public int EquippedWeaponId { get; set; }
     [Networked] public NetworkBool IsReloading { get; set; }
+    [Networked] private int MagazineSize { get; set; }
+    [Networked] private int ReserveSize { get; set; }
     [Networked] private TickTimer ReloadTimer { get; set; }
     [Networked] private NetworkBool DamageBuffActive { get; set; }
     [Networked] private TickTimer DamageBuffTimer { get; set; }
     [Networked] private int UnbuffedDamage { get; set; }
 
-    public int MaxAmmo => maxAmmo;
+    public int MaxAmmo => MagazineSize > 0 ? MagazineSize : Mathf.Max(1, maxAmmo);
+    public int MaxReserveAmmo => ReserveSize > 0 ? ReserveSize : Mathf.Max(0, maxReserveAmmo);
+    public int DefinitionWeaponId => weaponId;
+    public int DefinitionDamage => damage;
+    public float DefinitionFireRate => fireRate;
+    public int DefinitionMaxAmmo => maxAmmo;
+    public int DefinitionMaxReserveAmmo => maxReserveAmmo;
 
     [Header("Laser Sight")]
     [SerializeField] private float laserWidth = 0.03f;
@@ -56,6 +66,9 @@ public class PlayerWeapon : NetworkBehaviour
             FireRate = fireRate;
             CurrentAmmo = maxAmmo;
             ReserveAmmo = maxReserveAmmo;
+            EquippedWeaponId = weaponId;
+            MagazineSize = maxAmmo;
+            ReserveSize = maxReserveAmmo;
             IsReloading = false;
             ReloadTimer = TickTimer.None;
             DamageBuffActive = false;
@@ -113,7 +126,7 @@ public class PlayerWeapon : NetworkBehaviour
             return;
         }
 
-        if (IsReloading || CurrentAmmo >= maxAmmo || ReserveAmmo <= 0)
+        if (IsReloading || CurrentAmmo >= MaxAmmo || ReserveAmmo <= 0)
         {
             return;
         }
@@ -130,7 +143,7 @@ public class PlayerWeapon : NetworkBehaviour
             return;
         }
 
-        int missingAmmo = Mathf.Max(0, maxAmmo - CurrentAmmo);
+        int missingAmmo = Mathf.Max(0, MaxAmmo - CurrentAmmo);
         int ammoToLoad = Mathf.Min(missingAmmo, Mathf.Max(0, ReserveAmmo));
         CurrentAmmo += ammoToLoad;
         ReserveAmmo = Mathf.Max(0, ReserveAmmo - ammoToLoad);
@@ -164,11 +177,57 @@ public class PlayerWeapon : NetworkBehaviour
             return;
         }
 
-        CurrentAmmo = Mathf.Max(1, maxAmmo);
-        ReserveAmmo = Mathf.Max(0, maxReserveAmmo);
+        CurrentAmmo = Mathf.Max(1, MaxAmmo);
+        ReserveAmmo = Mathf.Max(0, MaxReserveAmmo);
         IsReloading = false;
         ReloadTimer = TickTimer.None;
         Debug.Log($"{name} ammo refilled: {CurrentAmmo}/{ReserveAmmo}");
+    }
+
+    public bool HasWeapon(int targetWeaponId)
+    {
+        return EquippedWeaponId == targetWeaponId;
+    }
+
+    public bool IsAmmoFull()
+    {
+        return CurrentAmmo >= MaxAmmo && ReserveAmmo >= MaxReserveAmmo;
+    }
+
+    public void EquipWeapon(int newWeaponId, int newDamage, float newFireRate, int newMagazineSize, int newReserveSize)
+    {
+        if (HasStateAuthority == false)
+        {
+            RPC_RequestEquipWeapon(newWeaponId, newDamage, newFireRate, newMagazineSize, newReserveSize);
+            return;
+        }
+
+        ApplyEquipWeapon(newWeaponId, newDamage, newFireRate, newMagazineSize, newReserveSize);
+    }
+
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
+    private void RPC_RequestEquipWeapon(int newWeaponId, int newDamage, float newFireRate, int newMagazineSize, int newReserveSize)
+    {
+        ApplyEquipWeapon(newWeaponId, newDamage, newFireRate, newMagazineSize, newReserveSize);
+    }
+
+    private void ApplyEquipWeapon(int newWeaponId, int newDamage, float newFireRate, int newMagazineSize, int newReserveSize)
+    {
+        if (HasStateAuthority == false)
+        {
+            return;
+        }
+
+        EquippedWeaponId = newWeaponId;
+        Damage = Mathf.Max(1, newDamage);
+        FireRate = Mathf.Max(minFireRate, newFireRate);
+        MagazineSize = Mathf.Max(1, newMagazineSize);
+        ReserveSize = Mathf.Max(0, newReserveSize);
+        UnbuffedDamage = Damage;
+        DamageBuffActive = false;
+        DamageBuffTimer = TickTimer.None;
+        FillAmmoToMax();
+        Debug.Log($"{name} equipped weapon id {EquippedWeaponId}. Damage: {Damage}, Mag: {MaxAmmo}");
     }
 
     public void ApplyDamageBuff(float duration, int multiplier)
@@ -251,7 +310,7 @@ public class PlayerWeapon : NetworkBehaviour
         // [แก้ไขจุดที่ 6]: หากกดปุ่ม R หรือกระสุนหมด ให้สั่งเริ่ม StartReload() 2 วินาที
         if (input.ReloadPressed || (input.FirePressed && CurrentAmmo <= 0))
         {
-            if (IsReloading == false && CurrentAmmo < maxAmmo)
+            if (IsReloading == false && CurrentAmmo < MaxAmmo)
             {
                 StartReload();
             }
