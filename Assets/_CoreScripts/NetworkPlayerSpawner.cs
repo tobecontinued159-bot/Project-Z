@@ -171,8 +171,28 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
         _hasSpawnedLocalPlayer = true;
         _spawnedPlayers.Add(networkPlayer);
-        AllPlayers.Add(networkPlayer);
+        RegisterPlayer(networkPlayer);
         Debug.Log($"Spawned local player for {player}");
+    }
+
+    public static void RegisterPlayer(NetworkObject networkPlayer)
+    {
+        if (networkPlayer == null || AllPlayers.Contains(networkPlayer))
+        {
+            return;
+        }
+
+        AllPlayers.Add(networkPlayer);
+    }
+
+    public static void UnregisterPlayer(NetworkObject networkPlayer)
+    {
+        if (networkPlayer == null)
+        {
+            return;
+        }
+
+        AllPlayers.Remove(networkPlayer);
     }
 
     public void OnPlayerLeft(NetworkRunner runner, PlayerRef player)

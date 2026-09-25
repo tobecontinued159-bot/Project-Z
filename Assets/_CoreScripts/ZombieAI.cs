@@ -226,36 +226,7 @@ public class ZombieAI : NetworkBehaviour
             return;
         }
 
-        if (NetworkPlayerSpawner.AllPlayers == null || NetworkPlayerSpawner.AllPlayers.Count == 0)
-        {
-            return;
-        }
-
-        PlayerStats nearestPlayerStats = null;
-        float nearestSqrDistance = float.MaxValue;
-
-        for (int i = 0; i < NetworkPlayerSpawner.AllPlayers.Count; i++)
-        {
-            NetworkObject playerNo = NetworkPlayerSpawner.AllPlayers[i];
-            if (playerNo == null)
-            {
-                continue;
-            }
-
-            PlayerStats stats = playerNo.GetComponent<PlayerStats>();
-            if (stats == null || stats.IsDead)
-            {
-                continue;
-            }
-
-            float sqrDistance = (playerNo.transform.position - transform.position).sqrMagnitude;
-            if (sqrDistance < nearestSqrDistance)
-            {
-                nearestSqrDistance = sqrDistance;
-                nearestPlayerStats = stats;
-            }
-        }
-
+        PlayerStats nearestPlayerStats = FindNearestLivingPlayerStats(out float nearestSqrDistance);
         if (nearestPlayerStats == null)
         {
             return;
@@ -267,17 +238,51 @@ public class ZombieAI : NetworkBehaviour
         }
 
         AttackCooldown = TickTimer.CreateFromSeconds(Runner, attackInterval);
+        nearestPlayerStats.TakeDamage(attackDamage);
+        Debug.Log($"{name} attacked {nearestPlayerStats.name} for {attackDamage}");
+    }
 
-        if (nearestPlayerStats.HasStateAuthority)
+    private PlayerStats FindNearestLivingPlayerStats(out float nearestSqrDistance)
+    {
+        PlayerStats nearest = null;
+        nearestSqrDistance = float.MaxValue;
+
+        if (NetworkPlayerSpawner.AllPlayers != null)
         {
-            nearestPlayerStats.TakeDamageLocal(attackDamage);
-        }
-        else
-        {
-            nearestPlayerStats.RPC_RequestTakeDamage(attackDamage);
+            for (int i = 0; i < NetworkPlayerSpawner.AllPlayers.Count; i++)
+            {
+                NetworkObject playerNo = NetworkPlayerSpawner.AllPlayers[i];
+                if (playerNo == null)
+                {
+                    continue;
+                }
+
+                ConsiderLivingPlayer(playerNo.GetComponent<PlayerStats>(), ref nearest, ref nearestSqrDistance);
+            }
         }
 
-        Debug.Log($"{name} attacked player! Damage: {attackDamage}");
+        PlayerStats[] allStats = FindObjectsByType<PlayerStats>(FindObjectsSortMode.None);
+        for (int i = 0; i < allStats.Length; i++)
+        {
+            ConsiderLivingPlayer(allStats[i], ref nearest, ref nearestSqrDistance);
+        }
+
+        return nearest;
+    }
+
+    private void ConsiderLivingPlayer(PlayerStats stats, ref PlayerStats nearest, ref float nearestSqrDistance)
+    {
+        if (stats == null || stats.Object == null || stats.Object.IsValid == false || stats.IsDead)
+        {
+            return;
+        }
+
+        float sqrDistance = (stats.transform.position - transform.position).sqrMagnitude;
+        if (sqrDistance < nearestSqrDistance)
+        {
+            nearestSqrDistance = sqrDistance;
+            nearest = stats;
+        }
     }
 
     public bool ForceKill()

@@ -79,6 +79,8 @@ public class PlayerStats : NetworkBehaviour
         _allRenderers = GetComponentsInChildren<Renderer>(true);
         _allColliders = GetComponentsInChildren<Collider>(true);
 
+        NetworkPlayerSpawner.RegisterPlayer(Object);
+
         if (HasStateAuthority)
         {
             Kills = 0;
@@ -89,6 +91,11 @@ public class PlayerStats : NetworkBehaviour
 
         RefreshVisuals();
         OnHealthChanged();
+    }
+
+    public override void Despawned(NetworkRunner runner, bool hasState)
+    {
+        NetworkPlayerSpawner.UnregisterPlayer(Object);
     }
 
     private void OnHealthChanged()
@@ -182,31 +189,46 @@ public class PlayerStats : NetworkBehaviour
         Debug.Log($"{Object.name} Kills (RPC): {Kills}");
     }
 
-    public void TakeDamageLocal(int damage)
+    public void TakeDamage(int damage)
     {
-        if (HasStateAuthority == false)
+        if (Object == null || Object.IsValid == false)
         {
-            RPC_RequestTakeDamage(damage);
             return;
         }
 
+        if (damage <= 0)
+        {
+            return;
+        }
+
+        RPC_TakeDamage(damage);
+    }
+
+    public void TakeDamageLocal(int damage)
+    {
+        TakeDamage(damage);
+    }
+
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
+    public void RPC_TakeDamage(int damage)
+    {
         ApplyDamage(damage);
     }
 
     [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
     public void RPC_RequestTakeDamage(int damage)
     {
-        if (HasStateAuthority == false)
-        {
-            return;
-        }
-
         ApplyDamage(damage);
     }
 
     private void ApplyDamage(int damage)
     {
-        if (IsDead)
+        if (HasStateAuthority == false || Object == null || Object.IsValid == false)
+        {
+            return;
+        }
+
+        if (IsDead || damage <= 0)
         {
             return;
         }
