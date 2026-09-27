@@ -17,6 +17,9 @@ public class LogicGatePuzzle : MonoBehaviour
     [Header("Events")]
     public UnityEvent OnPuzzleSolved;
 
+    [Header("Networked Door")]
+    [SerializeField] private NetworkedPuzzleDoor puzzleDoor;
+
     private bool _inputA;
     private bool _inputB;
 
@@ -129,6 +132,7 @@ public class LogicGatePuzzle : MonoBehaviour
             }
 
             OnPuzzleSolved.Invoke();
+            UnlockLinkedDoor();
             ClosePuzzle();
             return;
         }
@@ -196,6 +200,22 @@ public class LogicGatePuzzle : MonoBehaviour
 
         gateTypeDropdown.ClearOptions();
         gateTypeDropdown.AddOptions(new List<string> { "AND", "OR", "XOR" });
+    }
+
+    private void UnlockLinkedDoor()
+    {
+        if (puzzleDoor == null)
+        {
+            puzzleDoor = FindFirstObjectByType<NetworkedPuzzleDoor>();
+        }
+
+        if (puzzleDoor == null)
+        {
+            Debug.LogWarning("LogicGatePuzzle: no NetworkedPuzzleDoor assigned.");
+            return;
+        }
+
+        puzzleDoor.UnlockDoor();
     }
 
     private static string BoolToBit(bool value)
