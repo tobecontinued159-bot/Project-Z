@@ -1,4 +1,4 @@
-using Fusion;
+﻿using Fusion;
 using UnityEngine;
 
 public class PlayerStats : NetworkBehaviour
@@ -20,6 +20,9 @@ public class PlayerStats : NetworkBehaviour
 
     [Header("Respawn Settings")]
     [SerializeField] private Vector3 fallbackRespawnPosition = new Vector3(0f, 1f, 0f);
+
+    // 🟢 ตัวแปรสำหรับโหมดอมตะ
+    [Networked] public NetworkBool IsImmortal { get; set; }
 
     private Renderer[] _allRenderers;
     private Collider[] _allColliders;
@@ -86,6 +89,7 @@ public class PlayerStats : NetworkBehaviour
             Kills = 0;
             Health = startingHealth;
             IsDead = false;
+            IsImmortal = false; // 🟢 รีเซ็ตสถานะอมตะเมื่อเริ่มสปอว์น
             RespawnTimer = TickTimer.None;
         }
 
@@ -128,6 +132,12 @@ public class PlayerStats : NetworkBehaviour
         }
 
         RefreshVisuals();
+    }
+
+    // 🟢 เพิ่มฟังก์ชันสำหรับเรียกแจก Points ตรงๆ ให้ TerminalBuffManager ใช้งานง่ายขึ้น
+    public void AddPoints(int amount)
+    {
+        AddPointsLocal(amount);
     }
 
     public void AddPointsLocal(int amount)
@@ -233,7 +243,8 @@ public class PlayerStats : NetworkBehaviour
             return;
         }
 
-        if (IsDead || damage <= 0)
+        // 🟢 เช็กว่าถ้า IsImmortal == true หรือตายอยู่แล้ว จะไม่โดนหักเลือด
+        if (IsDead || IsImmortal || damage <= 0)
         {
             return;
         }
@@ -259,6 +270,7 @@ public class PlayerStats : NetworkBehaviour
 
         Health = startingHealth;
         IsDead = false;
+        IsImmortal = false;
         RespawnTimer = TickTimer.None;
 
         GetRespawnPose(out Vector3 spawnPosition, out Quaternion spawnRotation);

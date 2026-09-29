@@ -1,4 +1,4 @@
-using Fusion;
+﻿using Fusion;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -7,6 +7,9 @@ public class NetworkedPuzzleDoor : NetworkBehaviour
     [Networked]
     [OnChangedRender(nameof(OnIsOpenChanged))]
     public NetworkBool IsOpen { get; set; }
+
+    [Header("Puzzle Interaction Reference (Optional)")]
+    [SerializeField] private MonoBehaviour puzzleInteractionScript;
 
     private Collider[] _colliders;
     private Renderer[] _renderers;
@@ -39,6 +42,7 @@ public class NetworkedPuzzleDoor : NetworkBehaviour
         if (HasStateAuthority)
         {
             IsOpen = true;
+            OnDoorUnlockedSuccess();
             return;
         }
 
@@ -54,11 +58,30 @@ public class NetworkedPuzzleDoor : NetworkBehaviour
         }
 
         IsOpen = true;
+        OnDoorUnlockedSuccess();
     }
 
     private void OnIsOpenChanged()
     {
         ApplyOpenVisuals();
+    }
+
+    private void OnDoorUnlockedSuccess()
+    {
+        // 🟢 ปิดสคริปต์ ServerInteract เพื่อไม่ให้ดักจับการกดปุ่มได้อีก
+        if (puzzleInteractionScript != null)
+        {
+            puzzleInteractionScript.enabled = false;
+        }
+        else
+        {
+            // ถ้าไม่ได้ลากใส่ ให้พยายามค้นหา ServerInteract ในตัวมันเองแล้วปิดทันที
+            MonoBehaviour serverInteract = GetComponent("ServerInteract") as MonoBehaviour;
+            if (serverInteract != null)
+            {
+                serverInteract.enabled = false;
+            }
+        }
     }
 
     private void ApplyOpenVisuals()
@@ -101,6 +124,12 @@ public class NetworkedPuzzleDoor : NetworkBehaviour
         {
             _navMeshObstacle.carving = true;
             _navMeshObstacle.enabled = hide == false;
+        }
+
+        // 🟢 หากประตูเปิดแล้ว ให้ปิดสคริปต์ ServerInteract ทันที
+        if (hide)
+        {
+            OnDoorUnlockedSuccess();
         }
     }
 

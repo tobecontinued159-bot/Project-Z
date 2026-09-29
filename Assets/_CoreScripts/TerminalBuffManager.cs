@@ -1,128 +1,168 @@
+﻿using System.Collections;
 using Fusion;
 using UnityEngine;
 
 public class TerminalBuffManager : NetworkBehaviour
 {
-    public const string CommandGiveAmmo = "sudo give_ammo_all";
-    public const string CommandKillZombies = "rm -rf zombies";
-    public const string CommandDoubleDamage = "chmod 777 damage";
-
-    [SerializeField] private float damageBuffDuration = 15f;
-    [SerializeField] private int damageBuffMultiplier = 2;
-
     public static TerminalBuffManager Instance { get; private set; }
 
-    public override void Spawned()
+    private void Awake()
     {
-        Instance = this;
-    }
-
-    public override void Despawned(NetworkRunner runner, bool hasState)
-    {
-        if (Instance == this)
+        if (Instance != null && Instance != this)
         {
-            Instance = null;
+            Destroy(gameObject);
+            return;
         }
+        Instance = this;
     }
 
     public void ApplyTerminalBuff(string command)
     {
-        if (Object == null || Object.IsValid == false)
-        {
-            Debug.LogWarning("TerminalBuffManager: NetworkObject is not spawned.");
-            return;
-        }
+        string formattedCommand = command.Trim().ToLower();
 
-        if (string.IsNullOrEmpty(command))
+        if (HasStateAuthority)
         {
-            return;
+            RPC_ExecuteBuff(formattedCommand);
         }
-
-        if (command == CommandGiveAmmo)
+        else
         {
-            Rpc_GiveMaxAmmo();
-            return;
-        }
-
-        if (command == CommandKillZombies)
-        {
-            Rpc_InstaKillZombies();
-            return;
-        }
-
-        if (command == CommandDoubleDamage)
-        {
-            Rpc_DoubleDamage();
+            RPC_RequestExecuteBuff(formattedCommand);
         }
     }
 
-    [Rpc(RpcSources.All, RpcTargets.All, Channel = RpcChannel.Reliable)]
-    private void Rpc_GiveMaxAmmo()
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    private void RPC_RequestExecuteBuff(string command)
     {
-        PlayerWeapon[] weapons = FindObjectsByType<PlayerWeapon>(FindObjectsSortMode.None);
-        for (int i = 0; i < weapons.Length; i++)
-        {
-            PlayerWeapon weapon = weapons[i];
-            if (IsUsableWeapon(weapon) == false)
-            {
-                continue;
-            }
+        RPC_ExecuteBuff(command);
+    }
 
-            // RpcTargets.All: each peer only writes ammo on weapons it owns.
-            if (weapon.HasStateAuthority)
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    private void RPC_ExecuteBuff(string command)
+    {
+        switch (command)
+        {
+            case "print ammo":
+                ExecuteRefillAllAmmo();
+                break;
+
+            case "print buff":
+                ExecuteDamageBuffAll();
+                break;
+
+            case "print clearzombie":
+                ExecuteClearAllZombies();
+                break;
+
+            case "print point":
+                ExecuteAddPointsAll(2000);
+                break;
+
+            case "print immortal":
+                StartCoroutine(ImmortalBuffRoutine(10f));
+                break;
+
+            default:
+                Debug.LogWarning($"TerminalBuffManager: Unknown command '{command}'");
+                break;
+        }
+    }
+
+    // 1. เติมกระสุนกลับมาเต็มให้ทุกคน
+    private void ExecuteRefillAllAmmo()
+    {
+        PlayerWeapon[] allWeapons = FindObjectsOfType<PlayerWeapon>();
+        foreach (PlayerWeapon weapon in allWeapons)
+        {
+            if (weapon != null)
             {
                 weapon.RefillAmmo();
             }
         }
-        Debug.Log("Network Buff: Max Ammo given to all players!");
+        Debug.Log("Terminal Command: All players refilled ammo!");
     }
 
-    [Rpc(RpcSources.All, RpcTargets.All, Channel = RpcChannel.Reliable)]
-    private void Rpc_InstaKillZombies()
+    // 2. บัฟเพิ่มดาเมจให้ทุกคน
+    private void ExecuteDamageBuffAll()
     {
-        ZombieAI[] zombies = FindObjectsByType<ZombieAI>(FindObjectsSortMode.None);
-        int killed = 0;
-
-        for (int i = 0; i < zombies.Length; i++)
+        PlayerWeapon[] allWeapons = FindObjectsOfType<PlayerWeapon>();
+        foreach (PlayerWeapon weapon in allWeapons)
         {
-            ZombieAI zombie = zombies[i];
-            if (zombie == null || zombie.Object == null || zombie.Object.IsValid == false)
+            if (weapon != null)
             {
-                continue;
+                // 🟢 ส่ง duration = 15 วินาที, bonusDamage = 20 ดาเมจ
+                weapon.ApplyDamageBuff(15f, 20);
             }
+        }
+        Debug.Log("Terminal Command: All players received damage buff!");
+    }
 
-            if (zombie.ForceKill())
+    // 3. เคลียร์ซอมบี้ทั้งหมดในแมป
+    private void ExecuteClearAllZombies()
+    {
+        // ทำการลบวัตถุที่มี Tag หรือ Component ของซอมบี้ออกจากฉากทันที
+        GameObject[] zombies = GameObject.FindGameObjectsWithTag("Zombie");
+        foreach (GameObject zombie in zombies)
+        {
+            if (zombie != null)
             {
-                killed++;
+                // หากใช้ Photon Fusion ในการสปอว์นซอมบี้ ให้ใช้ Runner.Despawn หรือ Destroy ปกติ
+                NetworkObject netObj = zombie.GetComponent<NetworkObject>();
+                if (netObj != null && Runner != null && netObj.HasStateAuthority)
+                {
+                    Runner.Despawn(netObj);
+                }
+                else
+                {
+                    Destroy(zombie);
+                }
+            }
+        }
+        Debug.Log("Terminal Command: All zombies cleared!");
+    }
+
+    // 4. แจก 2000 Points ให้กับทุกคน
+    private void ExecuteAddPointsAll(int amount)
+    {
+        PlayerStats[] allStats = FindObjectsOfType<PlayerStats>();
+        foreach (PlayerStats stats in allStats)
+        {
+            if (stats != null)
+            {
+                // ปรับเพิ่ม Points เข้าตัวแปร Points ของ PlayerStats โดยตรง
+                stats.Points += amount;
+            }
+        }
+        Debug.Log($"Terminal Command: Added {amount} points to all players!");
+    }
+
+    // 5. ทำให้ทุกคนเป็นอมตะ 10 วินาที
+    private IEnumerator ImmortalBuffRoutine(float duration)
+    {
+        PlayerStats[] allStats = FindObjectsOfType<PlayerStats>();
+
+        // 🟢 เปิดโหมดอมตะให้ผู้เล่นทุกคน (ไม่โดนหัก Health ใน ApplyDamage)
+        foreach (PlayerStats stats in allStats)
+        {
+            if (stats != null)
+            {
+                stats.IsImmortal = true;
+                stats.Health = stats.MaxHealth; // เติมเลือดให้เต็ม
             }
         }
 
-        Debug.Log($"Network Buff: All zombies destroyed! ({killed} killed on this peer)");
-    }
+        Debug.Log($"Terminal Command: All players are IMMORTAL for {duration} seconds!");
 
-    [Rpc(RpcSources.All, RpcTargets.All, Channel = RpcChannel.Reliable)]
-    private void Rpc_DoubleDamage()
-    {
-        PlayerWeapon[] weapons = FindObjectsByType<PlayerWeapon>(FindObjectsSortMode.None);
-        for (int i = 0; i < weapons.Length; i++)
+        yield return new WaitForSeconds(duration);
+
+        // ครบ 10 วินาที ปิดโหมดอมตะ
+        foreach (PlayerStats stats in allStats)
         {
-            PlayerWeapon weapon = weapons[i];
-            if (IsUsableWeapon(weapon) == false)
+            if (stats != null)
             {
-                continue;
-            }
-
-            if (weapon.HasStateAuthority)
-            {
-                weapon.ApplyDamageBuff(damageBuffDuration, damageBuffMultiplier);
+                stats.IsImmortal = false;
             }
         }
 
-        Debug.Log("Network Buff: Double damage active!");
-    }
-
-    private static bool IsUsableWeapon(PlayerWeapon weapon)
-    {
-        return weapon != null && weapon.Object != null && weapon.Object.IsValid;
+        Debug.Log("Terminal Command: Immortal status expired.");
     }
 }

@@ -1,4 +1,4 @@
-using TMPro;
+﻿using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.EventSystems;
@@ -10,12 +10,15 @@ public class TerminalHacker : MonoBehaviour
     [SerializeField] private TMP_InputField terminalInput;
     [SerializeField] private TMP_Text errorText;
 
-    [Header("Commands")]
-    [SerializeField] private string[] commandsList =
+    [Header("Commands Pool")]
+    [SerializeField]
+    private string[] commandsList =
     {
-        "sudo give_ammo_all",
-        "chmod 777 damage",
-        "rm -rf zombies"
+        "print ammo",
+        "print buff",
+        "print clearzombie",
+        "print point",
+        "print immortal"
     };
 
     [Header("Events")]
@@ -57,7 +60,8 @@ public class TerminalHacker : MonoBehaviour
             return;
         }
 
-        if (submittedText == _currentCommand)
+        // 🟢 ตรวจสอบคำสั่ง (ตัด Space หน้าหลัง และไม่สนใจตัวพิมพ์เล็ก-ใหญ่)
+        if (submittedText.Trim().Equals(_currentCommand.Trim(), System.StringComparison.OrdinalIgnoreCase))
         {
             if (TerminalBuffManager.Instance != null)
             {

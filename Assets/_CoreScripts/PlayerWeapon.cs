@@ -9,7 +9,7 @@ public class PlayerWeapon : NetworkBehaviour
     [SerializeField] private float weaponRange = 50f;
     [SerializeField] private float chestHeight = 1f;
     [SerializeField] private float shotRadius = 0.5f;
-    [SerializeField] private int damage = 25;
+    [SerializeField] private int damage = 15;
     [SerializeField] private float fireRate = 0.2f;
 
     [Header("Upgrade Settings")]
@@ -18,14 +18,18 @@ public class PlayerWeapon : NetworkBehaviour
     [SerializeField] private float minFireRate = 0.08f;
 
     [Header("Ammo & Reload Settings")]
-    [SerializeField] private int maxAmmo = 30; // ความจุแม็กกาซีน
-    [SerializeField] private int maxReserveAmmo = 120; // ความจุกระสุนสำรองใน Stock
+    [SerializeField] private int maxAmmo = 15; // ความจุแม็กกาซีน
+    [SerializeField] private int maxReserveAmmo = 120; // ความจุกระสุนสำรองปกติ
     [SerializeField] private float reloadTime = 2f;
+
+    [Header("Infinite Ammo Settings")]
+    [SerializeField] private bool hasInfiniteReserve = false; // 🟢 ติ๊กถูกเฉพาะปืนเริ่มต้นที่ต้องการให้กระสุนไม่จำกัด
 
     [Networked] public int Damage { get; set; }
     [Networked] public float FireRate { get; set; }
     [Networked] public int CurrentAmmo { get; set; }
     [Networked] public int ReserveAmmo { get; set; }
+    [Networked] public NetworkBool HasInfiniteReserve { get; set; }
     [Networked] public NetworkBool IsReloading { get; set; }
     [Networked] private TickTimer ReloadTimer { get; set; }
     [Networked] private NetworkBool DamageBuffActive { get; set; }
@@ -69,14 +73,16 @@ public class PlayerWeapon : NetworkBehaviour
             Damage = damage;
             FireRate = fireRate;
             CurrentAmmo = maxAmmo;
-            ReserveAmmo = maxReserveAmmo;
+
+            // 🟢 ถ้าเป็นปืนกระสุนไม่จำกัด ไม่ต้องเซ็ต ReserveAmmo ให้เป็นตัวเลขจำกัด
+            ReserveAmmo = hasInfiniteReserve ? 9999 : maxReserveAmmo;
+
             IsReloading = false;
             ReloadTimer = TickTimer.None;
             DamageBuffActive = false;
             DamageBuffTimer = TickTimer.None;
             UnbuffedDamage = damage;
 
-            // ค่าเริ่มต้นของ WallBuy Definitions
             DefinitionWeaponId = 0;
             DefinitionDamage = damage;
             DefinitionFireRate = fireRate;
@@ -92,39 +98,34 @@ public class PlayerWeapon : NetworkBehaviour
     }
 
     // 🟢 เปลี่ยนปืนแบบรับ 5 Arguments ตามที่ WallBuyInteract เรียกใช้งาน
-    public void EquipWeapon(int weaponId, int newDamage, float newFireRate, int newMaxAmmo, int newMaxReserveAmmo)
+    public void EquipWeapon(int weaponId, int newDamage, float newFireRate, int newMaxAmmo, int newMaxReserveAmmo, bool infiniteReserve = false)
     {
         if (HasStateAuthority)
         {
-            ApplyEquipWeapon(weaponId, newDamage, newFireRate, newMaxAmmo, newMaxReserveAmmo);
+            ApplyEquipWeapon(weaponId, newDamage, newFireRate, newMaxAmmo, newMaxReserveAmmo, infiniteReserve);
         }
         else
         {
-            RPC_RequestEquipWeapon(weaponId, newDamage, newFireRate, newMaxAmmo, newMaxReserveAmmo);
+            RPC_RequestEquipWeapon(weaponId, newDamage, newFireRate, newMaxAmmo, newMaxReserveAmmo, infiniteReserve);
         }
     }
 
     [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
-    private void RPC_RequestEquipWeapon(int weaponId, int newDamage, float newFireRate, int newMaxAmmo, int newMaxReserveAmmo)
+    private void RPC_RequestEquipWeapon(int weaponId, int newDamage, float newFireRate, int newMaxAmmo, int newMaxReserveAmmo, bool infiniteReserve)
     {
-        ApplyEquipWeapon(weaponId, newDamage, newFireRate, newMaxAmmo, newMaxReserveAmmo);
+        ApplyEquipWeapon(weaponId, newDamage, newFireRate, newMaxAmmo, newMaxReserveAmmo, infiniteReserve);
     }
 
-    private void ApplyEquipWeapon(int weaponId, int newDamage, float newFireRate, int newMaxAmmo, int newMaxReserveAmmo)
+    private void ApplyEquipWeapon(int weaponId, int newDamage, float newFireRate, int newMaxAmmo, int newMaxReserveAmmo, bool infiniteReserve)
     {
         DefinitionWeaponId = weaponId;
-        DefinitionDamage = newDamage;
-        DefinitionFireRate = newFireRate;
-        DefinitionMaxAmmo = newMaxAmmo;
-        DefinitionMaxReserveAmmo = newMaxReserveAmmo;
-
         Damage = newDamage;
         FireRate = newFireRate;
         maxAmmo = newMaxAmmo;
         maxReserveAmmo = newMaxReserveAmmo;
+        hasInfiniteReserve = infiniteReserve; // 🟢 เซ็ตค่าตามปืนที่ซื้อ
 
         RefillAmmo();
-        Debug.Log($"{name} equipped weapon ID: {weaponId}");
     }
 
     // 🟢 เติมกระสุนเต็มทั้งแม็กและ Stock สำรอง
@@ -204,7 +205,10 @@ public class PlayerWeapon : NetworkBehaviour
             return;
         }
 
-        if (IsReloading || CurrentAmmo >= maxAmmo || ReserveAmmo <= 0) return;
+        // ถ้าเป็นกระสุนสำรองไม่จำกัด (hasInfiniteReserve = true) ให้เช็กแค่กระสุนในแม็กยังไม่เต็มก็รีโหลดได้เลย
+        bool canReload = hasInfiniteReserve ? (CurrentAmmo < maxAmmo) : (CurrentAmmo < maxAmmo && ReserveAmmo > 0);
+
+        if (IsReloading || !canReload) return;
 
         IsReloading = true;
         ReloadTimer = TickTimer.CreateFromSeconds(Runner, reloadTime);
@@ -215,23 +219,32 @@ public class PlayerWeapon : NetworkBehaviour
     private void RPC_RequestStartReload()
     {
         if (HasStateAuthority == false) return;
-        if (IsReloading || CurrentAmmo >= maxAmmo || ReserveAmmo <= 0) return;
+
+        bool canReload = hasInfiniteReserve ? (CurrentAmmo < maxAmmo) : (CurrentAmmo < maxAmmo && ReserveAmmo > 0);
+        if (IsReloading || !canReload) return;
 
         IsReloading = true;
         ReloadTimer = TickTimer.CreateFromSeconds(Runner, reloadTime);
     }
-
     private void CompleteReload()
     {
         int neededAmmo = maxAmmo - CurrentAmmo;
-        int ammoToDeduct = Mathf.Min(neededAmmo, ReserveAmmo);
 
-        CurrentAmmo += ammoToDeduct;
-        ReserveAmmo -= ammoToDeduct;
+        if (hasInfiniteReserve)
+        {
+            // ถ้ากระสุนไม่จำกัด เติมในแม็กให้เต็มทันทีโดยไม่หัก ReserveAmmo
+            CurrentAmmo = maxAmmo;
+        }
+        else
+        {
+            int ammoToDeduct = Mathf.Min(neededAmmo, ReserveAmmo);
+            CurrentAmmo += ammoToDeduct;
+            ReserveAmmo -= ammoToDeduct;
+        }
 
         IsReloading = false;
         ReloadTimer = TickTimer.None;
-        Debug.Log($"{name} reload completed! Current: {CurrentAmmo}, Reserve Stock: {ReserveAmmo}");
+        Debug.Log($"{name} reload completed! Current: {CurrentAmmo}");
     }
 
     public void ApplyDamageBuff(float duration, int multiplier)

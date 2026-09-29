@@ -1,13 +1,19 @@
-using Fusion;
+﻿using Fusion;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
 public class WeaponWallBuy : NetworkBehaviour
 {
-    public int weaponCost = 150;
+    [Header("Wall Buy Settings")]
+    public int weaponCost = 750; // ราคาซื้อปืน (ตั้งค่าตามต้องการใน Inspector)
 
-    [Networked] public NetworkBool IsPurchased { get; set; }
+    [Header("Weapon Stats to Grant")]
+    [SerializeField] private int weaponId = 1;
+    [SerializeField] private int weaponDamage = 35;
+    [SerializeField] private float weaponFireRate = 0.15f;
+    [SerializeField] private int maxAmmo = 30;
+    [SerializeField] private int maxReserveAmmo = 120;
 
     private bool _localPlayerInRange;
     private PlayerStats _localPlayerStats;
@@ -17,17 +23,6 @@ public class WeaponWallBuy : NetworkBehaviour
     public override void Spawned()
     {
         EnsurePrompt();
-        ApplyPurchasedState();
-    }
-
-    public override void FixedUpdateNetwork()
-    {
-        if (Object == null || Object.IsValid == false)
-        {
-            return;
-        }
-
-        ApplyPurchasedState();
     }
 
     private void Update()
@@ -39,7 +34,7 @@ public class WeaponWallBuy : NetworkBehaviour
 
         RefreshPrompt();
 
-        if (IsPurchased || _localPlayerInRange == false)
+        if (_localPlayerInRange == false)
         {
             return;
         }
@@ -108,39 +103,19 @@ public class WeaponWallBuy : NetworkBehaviour
             return;
         }
 
+        // ตรวจสอบว่า Points เพียงพอหรือไม่
         if (_localPlayerStats.TrySpendPoints(weaponCost) == false)
         {
             Debug.Log($"Not enough points. Need {weaponCost}, have {_localPlayerStats.Points}.");
             return;
         }
 
-        _localPlayerWeapon.UpgradeWeapon();
-        Debug.Log($"{_localPlayerStats.name} bought weapon upgrade for {weaponCost}. Remaining: {_localPlayerStats.Points}");
+        // 🟢 สวมใส่ปืนและเติมกระสุนให้ผู้เล่น
+        _localPlayerWeapon.EquipWeapon(weaponId, weaponDamage, weaponFireRate, maxAmmo, maxReserveAmmo);
+        Debug.Log($"{_localPlayerStats.name} bought wall weapon (ID: {weaponId}) for {weaponCost}. Remaining: {_localPlayerStats.Points}");
 
-        ClearLocalPlayer();
+        // อัปเดตข้อความบน UI แต่ "ไม่สั่งซ่อนโมเดลปืน" ทำให้คนอื่นซื้อต่อได้ตลอดเวลา
         RefreshPrompt();
-        RPC_HideWeaponBox();
-    }
-
-    [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
-    private void RPC_HideWeaponBox()
-    {
-        if (HasStateAuthority == false || IsPurchased)
-        {
-            return;
-        }
-
-        IsPurchased = true;
-        RPC_SetBoxVisible(false);
-    }
-
-    [Rpc(RpcSources.StateAuthority, RpcTargets.All, Channel = RpcChannel.Reliable)]
-    private void RPC_SetBoxVisible(NetworkBool visible)
-    {
-        if (visible == false)
-        {
-            HideBox();
-        }
     }
 
     private bool TryGetLocalPlayer(Collider other, out PlayerStats stats, out PlayerWeapon weapon)
@@ -149,11 +124,6 @@ public class WeaponWallBuy : NetworkBehaviour
         weapon = null;
 
         if (Object == null || Object.IsValid == false)
-        {
-            return false;
-        }
-
-        if (IsPurchased)
         {
             return false;
         }
@@ -171,30 +141,6 @@ public class WeaponWallBuy : NetworkBehaviour
         }
 
         return stats.HasStateAuthority || stats.HasInputAuthority;
-    }
-
-    private void ApplyPurchasedState()
-    {
-        if (Object == null || Object.IsValid == false)
-        {
-            return;
-        }
-
-        if (IsPurchased)
-        {
-            HideBox();
-        }
-    }
-
-    private void HideBox()
-    {
-        ClearLocalPlayer();
-        RefreshPrompt();
-
-        if (gameObject.activeSelf)
-        {
-            gameObject.SetActive(false);
-        }
     }
 
     private void ClearLocalPlayer()
@@ -218,10 +164,9 @@ public class WeaponWallBuy : NetworkBehaviour
             return;
         }
 
-        bool showPrompt = IsPurchased == false && _localPlayerInRange;
-        if (showPrompt)
+        if (_localPlayerInRange)
         {
-            _sharedPromptText.text = $"Press E to Buy Weapon ({weaponCost} Pts)";
+            _sharedPromptText.text = $"Press [E] to Buy Weapon ({weaponCost} Pts)";
             _sharedPromptText.enabled = true;
             return;
         }

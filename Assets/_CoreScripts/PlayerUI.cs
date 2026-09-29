@@ -410,7 +410,15 @@ public class PlayerUI : NetworkBehaviour
                 }
                 else
                 {
-                    ammoText.text = $"Ammo: {_cachedPlayerWeapon.CurrentAmmo} / {_cachedPlayerWeapon.ReserveAmmo}";
+                    // ถ้าเป็นปืนกระสุนไม่จำกัด ให้แสดงผลเป็น Ammo: X / ∞
+                    if (_cachedPlayerWeapon.HasInfiniteReserve)
+                    {
+                        ammoText.text = $"Ammo: {_cachedPlayerWeapon.CurrentAmmo} / ∞";
+                    }
+                    else
+                    {
+                        ammoText.text = $"Ammo: {_cachedPlayerWeapon.CurrentAmmo} / {_cachedPlayerWeapon.ReserveAmmo}";
+                    }
                 }
                 _lastAmmo = _cachedPlayerWeapon.CurrentAmmo;
                 _lastReserveAmmo = _cachedPlayerWeapon.ReserveAmmo;

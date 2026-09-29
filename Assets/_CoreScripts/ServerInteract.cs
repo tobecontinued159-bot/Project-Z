@@ -1,9 +1,11 @@
-using UnityEngine;
+﻿using UnityEngine;
+using UnityEngine.UI; // 🟢 เพิ่ม namespace สำหรับใช้ Button
 
 public class ServerInteract : MonoBehaviour
 {
     [Header("UI")]
     [SerializeField] private GameObject terminalPanel;
+    [SerializeField] private Button closeButton; // 🟢 เพิ่ม Reference ปุ่มปิด UI
 
     [SerializeField] private bool isPlayerInRange;
 
@@ -12,6 +14,12 @@ public class ServerInteract : MonoBehaviour
         if (terminalPanel != null)
         {
             terminalPanel.SetActive(false);
+        }
+
+        // 🟢 ผูก Event กดปุ่ม Close ให้สั่งปิด UI ทันที
+        if (closeButton != null)
+        {
+            closeButton.onClick.AddListener(CloseTerminal);
         }
     }
 
@@ -57,7 +65,8 @@ public class ServerInteract : MonoBehaviour
         CloseTerminal();
     }
 
-    private void CloseTerminal()
+    // 🟢 สั่งปิดหน้าต่าง UI และปลดล็อก Input
+    public void CloseTerminal()
     {
         if (terminalPanel != null)
         {
