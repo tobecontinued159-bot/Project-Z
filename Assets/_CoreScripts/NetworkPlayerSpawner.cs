@@ -20,7 +20,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
     private Camera _cachedMainCamera;
 
-    // Flag สำหรับเก็บสถานะการกดปุ่มจาก Update มายัง OnInput
+    // Flag ????แ? Update ? OnInput
     private bool _fireRequestPending;
     private bool _reloadRequestPending;
 
@@ -43,7 +43,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
-        // [จุดแก้ที่ 1]: ดักจับการกดปุ่ม Fire (คลิกซ้าย/ค้าง) และ Reload (ปุ่ม R) ใน Update
+        // [? 1]: ??แ Fire (?/?)  Reload ( R)  Update
         if (Input.GetButton("Fire1") || Input.GetButtonDown("Fire1"))
         {
             _fireRequestPending = true;
@@ -57,6 +57,21 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
     private async void Start()
     {
+        NetworkRunner existingRunner = FindExistingRunningRunner();
+        if (existingRunner != null)
+        {
+            _runner = existingRunner;
+            DisableFusionDebugIMGUI();
+            _runner.AddCallbacks(this);
+
+            if (_runner.LocalPlayer.IsRealPlayer)
+            {
+                SpawnLocalPlayer(_runner, _runner.LocalPlayer);
+            }
+
+            return;
+        }
+
         _runner = GetComponent<NetworkRunner>();
         if (_runner == null)
         {
@@ -65,6 +80,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
         if (_runner.IsRunning)
         {
+            _runner.AddCallbacks(this);
             return;
         }
 
@@ -110,9 +126,21 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
         }
 
         DisableFusionDebugIMGUI();
+    }
 
-        // [จุดแก้ที่ 2]: ลบ SpawnLocalPlayer() ตรงนี้ออก 
-        // ให้ไปรอเกิดใน OnPlayerJoined() ทีเดียว เพื่อป้องกันการสปอว์นซ้ำสองรอบ
+    private static NetworkRunner FindExistingRunningRunner()
+    {
+        NetworkRunner[] runners = FindObjectsByType<NetworkRunner>(FindObjectsSortMode.None);
+        for (int i = 0; i < runners.Length; i++)
+        {
+            NetworkRunner runner = runners[i];
+            if (runner != null && runner.IsRunning)
+            {
+                return runner;
+            }
+        }
+
+        return null;
     }
 
     private static void DisableFusionDebugIMGUI()
@@ -281,7 +309,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
             data.LookDirection = lookPoint;
         }
 
-        // [จุดแก้ที่ 3]: ส่งค่าปุ่ม Fire และ Reload เข้า Network Input แล้วเคลียร์ค่ารอไว้รอบถัดไป
+        // [? 3]: ?? Fire  Reload  Network Input ??
         data.FirePressed = _fireRequestPending;
         data.ReloadPressed = _reloadRequestPending;
 
