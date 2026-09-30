@@ -1,4 +1,4 @@
-using Fusion;
+﻿using Fusion;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -13,6 +13,9 @@ public class WallBuyInteract : NetworkBehaviour
     [SerializeField] private int weaponID = 1;
     [SerializeField] private PlayerWeapon weaponPrefab;
     [SerializeField] private string weaponDisplayName = "Wall Weapon";
+
+    // 🟢 ตัวเลือกกำหนดว่าเป็นกำแพงปืนลูกซองหรือไม่
+    [SerializeField] private bool isShotgunWeapon = false;
 
     [Header("Fallback Stats (used if no prefab)")]
     [SerializeField] private int fallbackDamage = 40;
@@ -83,28 +86,17 @@ public class WallBuyInteract : NetworkBehaviour
 
     private void TryInteract()
     {
-        if (_localPlayerStats.Object == null || _localPlayerStats.Object.IsValid == false)
-        {
-            return;
-        }
-
-        if (_localPlayerWeapon.Object == null || _localPlayerWeapon.Object.IsValid == false)
-        {
-            return;
-        }
-
-        if (_localPlayerStats.HasStateAuthority == false)
-        {
-            return;
-        }
-
-        if (_localPlayerStats.IsDead)
-        {
-            return;
-        }
+        if (_localPlayerStats.Object == null || _localPlayerStats.Object.IsValid == false) return;
+        if (_localPlayerWeapon.Object == null || _localPlayerWeapon.Object.IsValid == false) return;
+        if (_localPlayerStats.HasStateAuthority == false) return;
+        if (_localPlayerStats.IsDead) return;
 
         int resolvedWeaponId = GetResolvedWeaponId();
-        if (_localPlayerWeapon.HasWeapon(resolvedWeaponId))
+
+        // 🟢 ตรวจสอบทั้ง ID และประเภทปืน (ว่าเป็นปืนชนิดเดียวกันจริงๆ หรือไม่)
+        bool isHoldingThisExactWeapon = _localPlayerWeapon.HasWeapon(resolvedWeaponId) && (_localPlayerWeapon.IsShotgun == isShotgunWeapon);
+
+        if (isHoldingThisExactWeapon)
         {
             TryBuyAmmo();
             return;
@@ -132,7 +124,9 @@ public class WallBuyInteract : NetworkBehaviour
             GetResolvedDamage(),
             GetResolvedFireRate(),
             GetResolvedMaxAmmo(),
-            GetResolvedMaxReserveAmmo());
+            GetResolvedMaxReserveAmmo(),
+            false,
+            isShotgunWeapon);
 
         Debug.Log($"{_localPlayerStats.name} bought {GetWeaponName()} for {weaponCost}. Remaining: {_localPlayerStats.Points}");
         RefreshPrompt();
@@ -168,90 +162,49 @@ public class WallBuyInteract : NetworkBehaviour
         stats = null;
         weapon = null;
 
-        if (other == null || other.CompareTag("Player") == false)
-        {
-            return false;
-        }
+        if (other == null || other.CompareTag("Player") == false) return false;
 
         stats = other.GetComponentInParent<PlayerStats>();
         weapon = other.GetComponentInParent<PlayerWeapon>();
-        if (stats == null || weapon == null)
-        {
-            return false;
-        }
+        if (stats == null || weapon == null) return false;
 
         return stats.HasStateAuthority || stats.HasInputAuthority;
     }
 
     private int GetResolvedWeaponId()
     {
-        if (weaponID != 0)
-        {
-            return weaponID;
-        }
-
-        if (weaponPrefab != null)
-        {
-            return weaponPrefab.DefinitionWeaponId;
-        }
-
+        if (weaponID != 0) return weaponID;
+        if (weaponPrefab != null) return weaponPrefab.DefinitionWeaponId;
         return 1;
     }
 
-    private int GetResolvedDamage()
-    {
-        return weaponPrefab != null ? weaponPrefab.DefinitionDamage : fallbackDamage;
-    }
-
-    private float GetResolvedFireRate()
-    {
-        return weaponPrefab != null ? weaponPrefab.DefinitionFireRate : fallbackFireRate;
-    }
-
-    private int GetResolvedMaxAmmo()
-    {
-        return weaponPrefab != null ? weaponPrefab.DefinitionMaxAmmo : fallbackMaxAmmo;
-    }
-
-    private int GetResolvedMaxReserveAmmo()
-    {
-        return weaponPrefab != null ? weaponPrefab.DefinitionMaxReserveAmmo : fallbackMaxReserveAmmo;
-    }
+    private int GetResolvedDamage() => weaponPrefab != null ? weaponPrefab.DefinitionDamage : fallbackDamage;
+    private float GetResolvedFireRate() => weaponPrefab != null ? weaponPrefab.DefinitionFireRate : fallbackFireRate;
+    private int GetResolvedMaxAmmo() => weaponPrefab != null ? weaponPrefab.DefinitionMaxAmmo : fallbackMaxAmmo;
+    private int GetResolvedMaxReserveAmmo() => weaponPrefab != null ? weaponPrefab.DefinitionMaxReserveAmmo : fallbackMaxReserveAmmo;
 
     private string GetWeaponName()
     {
-        if (string.IsNullOrWhiteSpace(weaponDisplayName) == false)
-        {
-            return weaponDisplayName;
-        }
-
-        if (weaponPrefab != null)
-        {
-            return weaponPrefab.name;
-        }
-
+        if (string.IsNullOrWhiteSpace(weaponDisplayName) == false) return weaponDisplayName;
+        if (weaponPrefab != null) return weaponPrefab.name;
         return "Weapon";
     }
 
     private void RefreshPrompt()
     {
         EnsurePrompt();
-        if (_sharedPromptText == null)
-        {
-            return;
-        }
+        if (_sharedPromptText == null) return;
 
         if (IsNetworkReady() == false || _localPlayerInRange == false || _localPlayerWeapon == null)
         {
-            if (_sharedPromptText.enabled)
-            {
-                _sharedPromptText.enabled = false;
-            }
-
+            if (_sharedPromptText.enabled) _sharedPromptText.enabled = false;
             return;
         }
 
-        if (_localPlayerWeapon.HasWeapon(GetResolvedWeaponId()))
+        int resolvedWeaponId = GetResolvedWeaponId();
+        bool isHoldingThisExactWeapon = _localPlayerWeapon.HasWeapon(resolvedWeaponId) && (_localPlayerWeapon.IsShotgun == isShotgunWeapon);
+
+        if (isHoldingThisExactWeapon)
         {
             _sharedPromptText.text = $"Press E to Buy Ammo ({ammoCost} Pts)";
         }
@@ -265,10 +218,7 @@ public class WallBuyInteract : NetworkBehaviour
 
     private static void EnsurePrompt()
     {
-        if (_sharedPromptText != null)
-        {
-            return;
-        }
+        if (_sharedPromptText != null) return;
 
         GameObject hudCanvasGo = GameObject.Find("HUD_Canvas");
         if (hudCanvasGo == null)
@@ -288,10 +238,7 @@ public class WallBuyInteract : NetworkBehaviour
         if (existing != null)
         {
             _sharedPromptText = existing.GetComponent<TMP_Text>();
-            if (_sharedPromptText != null)
-            {
-                return;
-            }
+            if (_sharedPromptText != null) return;
         }
 
         GameObject promptGo = new GameObject("WeaponBuyPrompt", typeof(RectTransform));
@@ -313,10 +260,7 @@ public class WallBuyInteract : NetworkBehaviour
         _sharedPromptText.enabled = false;
     }
 
-    private bool IsNetworkReady()
-    {
-        return Object != null && Object.IsValid;
-    }
+    private bool IsNetworkReady() => Object != null && Object.IsValid;
 
     private void ClearLocalPlayer()
     {
@@ -328,9 +272,6 @@ public class WallBuyInteract : NetworkBehaviour
     private void OnDisable()
     {
         ClearLocalPlayer();
-        if (_sharedPromptText != null)
-        {
-            _sharedPromptText.enabled = false;
-        }
+        if (_sharedPromptText != null) _sharedPromptText.enabled = false;
     }
 }

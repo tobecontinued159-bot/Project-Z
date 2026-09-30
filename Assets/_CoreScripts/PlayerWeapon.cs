@@ -18,25 +18,34 @@ public class PlayerWeapon : NetworkBehaviour
     [SerializeField] private float minFireRate = 0.08f;
 
     [Header("Ammo & Reload Settings")]
-    [SerializeField] private int maxAmmo = 15; // ความจุแม็กกาซีน
-    [SerializeField] private int maxReserveAmmo = 120; // ความจุกระสุนสำรองปกติ
+    [SerializeField] private int maxAmmo = 15;
+    [SerializeField] private int maxReserveAmmo = 120;
     [SerializeField] private float reloadTime = 2f;
 
     [Header("Infinite Ammo Settings")]
-    [SerializeField] private bool hasInfiniteReserve = false; // 🟢 ติ๊กถูกเฉพาะปืนเริ่มต้นที่ต้องการให้กระสุนไม่จำกัด
+    [SerializeField] private bool hasInfiniteReserve = false;
+
+    // 🟢 หมวดหมู่ตั้งค่าปืนลูกซอง (Shotgun Settings)
+    [Header("Shotgun Settings")]
+    [SerializeField] private bool defaultIsShotgun = false; // ติ๊กถูกถ้าปืนนี้คือลูกซอง
+    [SerializeField] private int pelletsCount = 8; // จำนวนเม็ดลูกปืนต่อการยิง 1 ครั้ง
+    [SerializeField] private float spreadAngle = 10f; // องศาความบานของกระสุน
+    [SerializeField] private float optimalDistance = 4f; // ระยะที่ทำดาเมจเต็ม 100%
+    [SerializeField] private float maxDistance = 15f; // ระยะยิงสูงสุดของลูกซอง
+    [SerializeField] private float minDamageMultiplier = 0.3f; // ตัวคูณดาเมจถ้าซอมบี้อยู่ไกล (เช่น 0.3 = 30%)
 
     [Networked] public int Damage { get; set; }
     [Networked] public float FireRate { get; set; }
     [Networked] public int CurrentAmmo { get; set; }
     [Networked] public int ReserveAmmo { get; set; }
     [Networked] public NetworkBool HasInfiniteReserve { get; set; }
+    [Networked] public NetworkBool IsShotgun { get; set; } // 🟢 ตรวจสอบว่าเป็นลูกซองหรือไม่ผ่านระบบ Network
     [Networked] public NetworkBool IsReloading { get; set; }
     [Networked] private TickTimer ReloadTimer { get; set; }
     [Networked] private NetworkBool DamageBuffActive { get; set; }
     [Networked] private TickTimer DamageBuffTimer { get; set; }
     [Networked] private int UnbuffedDamage { get; set; }
 
-    // 🟢 ตัวแปร Networked สำหรับรองรับ WallBuyInteract
     [Networked] public int DefinitionWeaponId { get; set; }
     [Networked] public int DefinitionDamage { get; set; }
     [Networked] public float DefinitionFireRate { get; set; }
@@ -46,7 +55,6 @@ public class PlayerWeapon : NetworkBehaviour
     public int MaxAmmo => maxAmmo;
     public int MaxReserveAmmo => maxReserveAmmo;
 
-    // 🟢 ฟังก์ชันเช็กกระสุนเต็มสำหรับ WallBuyInteract
     public bool IsAmmoFull()
     {
         return CurrentAmmo >= maxAmmo && ReserveAmmo >= maxReserveAmmo;
@@ -74,8 +82,9 @@ public class PlayerWeapon : NetworkBehaviour
             FireRate = fireRate;
             CurrentAmmo = maxAmmo;
 
-            // 🟢 ถ้าเป็นปืนกระสุนไม่จำกัด ไม่ต้องเซ็ต ReserveAmmo ให้เป็นตัวเลขจำกัด
-            ReserveAmmo = hasInfiniteReserve ? 9999 : maxReserveAmmo;
+            HasInfiniteReserve = hasInfiniteReserve;
+            IsShotgun = defaultIsShotgun; // 🟢 โหลดค่าว่าเป็นลูกซองหรือไม่ตอนเกิด
+            ReserveAmmo = HasInfiniteReserve ? 9999 : maxReserveAmmo;
 
             IsReloading = false;
             ReloadTimer = TickTimer.None;
@@ -91,52 +100,52 @@ public class PlayerWeapon : NetworkBehaviour
         }
     }
 
-    // 🟢 ตรวจสอบว่าผู้เล่นถือปืน ID นี้อยู่หรือไม่
     public bool HasWeapon(int weaponId)
     {
         return DefinitionWeaponId == weaponId;
     }
 
-    // 🟢 เปลี่ยนปืนแบบรับ 5 Arguments ตามที่ WallBuyInteract เรียกใช้งาน
-    public void EquipWeapon(int weaponId, int newDamage, float newFireRate, int newMaxAmmo, int newMaxReserveAmmo, bool infiniteReserve = false)
+    // 🟢 อัปเดตพารามิเตอร์ให้รองรับปืนลูกซอง (เพิ่ม isShotgunWeapon ด้านหลังสุด)
+    public void EquipWeapon(int weaponId, int newDamage, float newFireRate, int newMaxAmmo, int newMaxReserveAmmo, bool infiniteReserve = false, bool isShotgunWeapon = false)
     {
         if (HasStateAuthority)
         {
-            ApplyEquipWeapon(weaponId, newDamage, newFireRate, newMaxAmmo, newMaxReserveAmmo, infiniteReserve);
+            ApplyEquipWeapon(weaponId, newDamage, newFireRate, newMaxAmmo, newMaxReserveAmmo, infiniteReserve, isShotgunWeapon);
         }
         else
         {
-            RPC_RequestEquipWeapon(weaponId, newDamage, newFireRate, newMaxAmmo, newMaxReserveAmmo, infiniteReserve);
+            RPC_RequestEquipWeapon(weaponId, newDamage, newFireRate, newMaxAmmo, newMaxReserveAmmo, infiniteReserve, isShotgunWeapon);
         }
     }
 
     [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
-    private void RPC_RequestEquipWeapon(int weaponId, int newDamage, float newFireRate, int newMaxAmmo, int newMaxReserveAmmo, bool infiniteReserve)
+    private void RPC_RequestEquipWeapon(int weaponId, int newDamage, float newFireRate, int newMaxAmmo, int newMaxReserveAmmo, bool infiniteReserve, bool isShotgunWeapon)
     {
-        ApplyEquipWeapon(weaponId, newDamage, newFireRate, newMaxAmmo, newMaxReserveAmmo, infiniteReserve);
+        ApplyEquipWeapon(weaponId, newDamage, newFireRate, newMaxAmmo, newMaxReserveAmmo, infiniteReserve, isShotgunWeapon);
     }
 
-    private void ApplyEquipWeapon(int weaponId, int newDamage, float newFireRate, int newMaxAmmo, int newMaxReserveAmmo, bool infiniteReserve)
+    private void ApplyEquipWeapon(int weaponId, int newDamage, float newFireRate, int newMaxAmmo, int newMaxReserveAmmo, bool infiniteReserve, bool isShotgunWeapon)
     {
         DefinitionWeaponId = weaponId;
         Damage = newDamage;
         FireRate = newFireRate;
         maxAmmo = newMaxAmmo;
         maxReserveAmmo = newMaxReserveAmmo;
-        hasInfiniteReserve = infiniteReserve; // 🟢 เซ็ตค่าตามปืนที่ซื้อ
+
+        hasInfiniteReserve = infiniteReserve;
+        HasInfiniteReserve = infiniteReserve;
+        IsShotgun = isShotgunWeapon; // 🟢 อัปเดตสถานะลูกซองเมื่อเปลี่ยนปืน
 
         RefillAmmo();
     }
 
-    // 🟢 เติมกระสุนเต็มทั้งแม็กและ Stock สำรอง
     public void RefillAmmo()
     {
         if (HasStateAuthority)
         {
             CurrentAmmo = maxAmmo;
-            ReserveAmmo = maxReserveAmmo;
+            ReserveAmmo = HasInfiniteReserve ? 9999 : maxReserveAmmo;
             IsReloading = false;
-            Debug.Log($"{name} ammo completely refilled.");
         }
         else
         {
@@ -148,17 +157,15 @@ public class PlayerWeapon : NetworkBehaviour
     private void RPC_RequestRefillAmmo()
     {
         CurrentAmmo = maxAmmo;
-        ReserveAmmo = maxReserveAmmo;
+        ReserveAmmo = HasInfiniteReserve ? 9999 : maxReserveAmmo;
         IsReloading = false;
     }
 
-    // 🟢 ซื้อเติมเฉพาะกระสุน Stock สำรอง
     public void BuyReserveAmmo()
     {
         if (HasStateAuthority)
         {
             ReserveAmmo = maxReserveAmmo;
-            Debug.Log($"{name} bought reserve ammo! Stock is now {ReserveAmmo}");
         }
         else
         {
@@ -179,7 +186,6 @@ public class PlayerWeapon : NetworkBehaviour
             RPC_RequestUpgrade();
             return;
         }
-
         ApplyUpgrade();
     }
 
@@ -194,7 +200,6 @@ public class PlayerWeapon : NetworkBehaviour
     {
         Damage += upgradeDamageBonus;
         FireRate = Mathf.Max(minFireRate, FireRate * upgradeFireRateMultiplier);
-        Debug.Log($"{name} upgraded weapon. Damage: {Damage}, FireRate: {FireRate:0.00}");
     }
 
     public void StartReload()
@@ -205,14 +210,11 @@ public class PlayerWeapon : NetworkBehaviour
             return;
         }
 
-        // ถ้าเป็นกระสุนสำรองไม่จำกัด (hasInfiniteReserve = true) ให้เช็กแค่กระสุนในแม็กยังไม่เต็มก็รีโหลดได้เลย
-        bool canReload = hasInfiniteReserve ? (CurrentAmmo < maxAmmo) : (CurrentAmmo < maxAmmo && ReserveAmmo > 0);
-
+        bool canReload = HasInfiniteReserve ? (CurrentAmmo < maxAmmo) : (CurrentAmmo < maxAmmo && ReserveAmmo > 0);
         if (IsReloading || !canReload) return;
 
         IsReloading = true;
         ReloadTimer = TickTimer.CreateFromSeconds(Runner, reloadTime);
-        Debug.Log($"{name} started reloading ({reloadTime}s)...");
     }
 
     [Rpc(RpcSources.All, RpcTargets.StateAuthority, Channel = RpcChannel.Reliable)]
@@ -220,19 +222,18 @@ public class PlayerWeapon : NetworkBehaviour
     {
         if (HasStateAuthority == false) return;
 
-        bool canReload = hasInfiniteReserve ? (CurrentAmmo < maxAmmo) : (CurrentAmmo < maxAmmo && ReserveAmmo > 0);
+        bool canReload = HasInfiniteReserve ? (CurrentAmmo < maxAmmo) : (CurrentAmmo < maxAmmo && ReserveAmmo > 0);
         if (IsReloading || !canReload) return;
 
         IsReloading = true;
         ReloadTimer = TickTimer.CreateFromSeconds(Runner, reloadTime);
     }
+
     private void CompleteReload()
     {
         int neededAmmo = maxAmmo - CurrentAmmo;
-
-        if (hasInfiniteReserve)
+        if (HasInfiniteReserve)
         {
-            // ถ้ากระสุนไม่จำกัด เติมในแม็กให้เต็มทันทีโดยไม่หัก ReserveAmmo
             CurrentAmmo = maxAmmo;
         }
         else
@@ -244,7 +245,6 @@ public class PlayerWeapon : NetworkBehaviour
 
         IsReloading = false;
         ReloadTimer = TickTimer.None;
-        Debug.Log($"{name} reload completed! Current: {CurrentAmmo}");
     }
 
     public void ApplyDamageBuff(float duration, int multiplier)
@@ -254,7 +254,6 @@ public class PlayerWeapon : NetworkBehaviour
             RPC_RequestDamageBuff(duration, multiplier);
             return;
         }
-
         ApplyDamageBuffLocal(duration, multiplier);
     }
 
@@ -274,14 +273,12 @@ public class PlayerWeapon : NetworkBehaviour
             Damage = UnbuffedDamage * safeMultiplier;
             DamageBuffActive = true;
         }
-
         DamageBuffTimer = TickTimer.CreateFromSeconds(Runner, duration);
     }
 
     private void TickDamageBuff()
     {
         if (HasStateAuthority == false || DamageBuffActive == false) return;
-
         if (DamageBuffTimer.Expired(Runner) == false) return;
 
         Damage = UnbuffedDamage > 0 ? UnbuffedDamage : damage;
@@ -291,10 +288,7 @@ public class PlayerWeapon : NetworkBehaviour
 
     private void LateUpdate()
     {
-        if (Object == null || Object.IsValid == false)
-        {
-            return;
-        }
+        if (Object == null || Object.IsValid == false) return;
 
         if (EnsureStats() && _cachedStats.IsDead)
         {
@@ -306,7 +300,15 @@ public class PlayerWeapon : NetworkBehaviour
 
         if (HasInputAuthority)
         {
-            Fire(applyDamage: false);
+            // 🟢 ปิดการใช้งานเส้นเลเซอร์ยาวสีขาว ถ้าปืนนี้คือปืนลูกซอง
+            if (IsShotgun)
+            {
+                if (_laserLine != null) _laserLine.enabled = false;
+            }
+            else
+            {
+                Fire(applyDamage: false); // ลากเส้นเลเซอร์ให้ปืนปกติ
+            }
         }
     }
 
@@ -318,28 +320,22 @@ public class PlayerWeapon : NetworkBehaviour
 
         if (HasStateAuthority && IsReloading)
         {
-            if (ReloadTimer.Expired(Runner))
-            {
-                CompleteReload();
-            }
+            if (ReloadTimer.Expired(Runner)) CompleteReload();
         }
 
         if (GetInput(out PlayerInput input) == false) return;
 
         if (input.ReloadPressed || (input.FirePressed && CurrentAmmo <= 0))
         {
-            if (IsReloading == false && CurrentAmmo < maxAmmo && ReserveAmmo > 0)
+            if (IsReloading == false && CurrentAmmo < maxAmmo && (HasInfiniteReserve || ReserveAmmo > 0))
             {
                 StartReload();
             }
         }
 
         if (PlayerInputLock.IsTerminalOpen) return;
-
         if (IsReloading || CurrentAmmo <= 0) return;
-
         if (input.FirePressed == false) return;
-
         if (FireCooldown.ExpiredOrNotRunning(Runner) == false) return;
 
         if (HasStateAuthority)
@@ -347,7 +343,7 @@ public class PlayerWeapon : NetworkBehaviour
             Fire(applyDamage: true);
             CurrentAmmo = Mathf.Max(0, CurrentAmmo - 1);
 
-            if (CurrentAmmo <= 0 && ReserveAmmo > 0)
+            if (CurrentAmmo <= 0 && (HasInfiniteReserve || ReserveAmmo > 0))
             {
                 StartReload();
             }
@@ -359,16 +355,8 @@ public class PlayerWeapon : NetworkBehaviour
 
     private bool EnsureStats()
     {
-
-        if (_cachedStats == null)
-        {
-            _cachedStats = GetComponent<PlayerStats>();
-        }
-
-        return _cachedStats != null
-            && _cachedStats.Object != null
-            && _cachedStats.Object.IsValid;
-
+        if (_cachedStats == null) _cachedStats = GetComponent<PlayerStats>();
+        return _cachedStats != null && _cachedStats.Object != null && _cachedStats.Object.IsValid;
     }
 
     private void SetupLaserSight()
@@ -397,18 +385,23 @@ public class PlayerWeapon : NetworkBehaviour
     private void EnsureFirePoint()
     {
         if (firePoint != null) return;
-
         Transform existing = transform.Find("FirePoint");
         if (existing != null)
         {
             firePoint = existing;
             return;
         }
-
         GameObject firePointGo = new GameObject("FirePoint");
         firePointGo.transform.SetParent(transform, false);
         firePointGo.transform.localPosition = new Vector3(0f, chestHeight, 0.6f);
         firePoint = firePointGo.transform;
+    }
+
+    // 🟢 ฟังก์ชันช่วยสุ่มทิศทางให้กระสุนลูกซองบานออก
+    private Vector3 GetSpreadDirection(Vector3 forward, float angle)
+    {
+        Quaternion randomRot = Quaternion.Euler(Random.Range(-angle, angle), Random.Range(-angle, angle), 0f);
+        return Quaternion.LookRotation(forward) * randomRot * Vector3.forward;
     }
 
     private void Fire(bool applyDamage)
@@ -424,7 +417,6 @@ public class PlayerWeapon : NetworkBehaviour
         {
             Ray ray = gameplayCamera.ScreenPointToRay(Input.mousePosition);
             Plane aimPlane = new Plane(Vector3.up, fireOrigin);
-
             if (aimPlane.Raycast(ray, out float enter))
             {
                 targetPoint = ray.GetPoint(enter);
@@ -436,46 +428,94 @@ public class PlayerWeapon : NetworkBehaviour
         }
 
         targetPoint.y = fireOrigin.y;
-
         Vector3 direction = targetPoint - fireOrigin;
         direction.y = 0f;
 
-        if (direction.sqrMagnitude < 0.001f)
-        {
-            direction = FlattenHorizontal(transform.forward);
-        }
+        if (direction.sqrMagnitude < 0.001f) direction = FlattenHorizontal(transform.forward);
         direction.Normalize();
 
-        Vector3 endPosition = fireOrigin + (direction * weaponRange);
-
-        if (Physics.SphereCast(fireOrigin, shotRadius, direction, out RaycastHit hit, weaponRange, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+        if (IsShotgun)
         {
-            endPosition = fireOrigin + (direction * hit.distance);
-            endPosition.y = fireOrigin.y;
-
-            if (applyDamage && HasStateAuthority)
+            // ==========================================
+            // 🟢 ระบบยิงแบบปืนลูกซอง (Shotgun)
+            // ==========================================
+            for (int i = 0; i < pelletsCount; i++)
             {
-                ZombieAI zombie = hit.collider.GetComponentInParent<ZombieAI>();
-                if (zombie != null && zombie.Object != null && zombie.Object.IsValid)
+                Vector3 spreadDir = GetSpreadDirection(direction, spreadAngle);
+                Vector3 endPos = fireOrigin + (spreadDir * maxDistance);
+                float hitDistance = maxDistance;
+
+                // ใช้ Raycast ยิงออกไปตามจำนวนกระสุน (Pellets)
+                if (Physics.Raycast(fireOrigin, spreadDir, out RaycastHit hit, maxDistance, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
                 {
-                    PlayerRef shooterPlayerRef = Object.InputAuthority;
-                    int currentDamage = Damage > 0 ? Damage : damage;
-                    zombie.RPC_RequestDamage(currentDamage, shooterPlayerRef);
+                    endPos = fireOrigin + (spreadDir * hit.distance);
+                    hitDistance = hit.distance;
+
+                    if (applyDamage && HasStateAuthority)
+                    {
+                        ZombieAI zombie = hit.collider.GetComponentInParent<ZombieAI>();
+                        if (zombie != null && zombie.Object != null && zombie.Object.IsValid)
+                        {
+                            // 🟢 คำนวณความแรงตามระยะ (ยิ่งไกลยิ่งเบา)
+                            float falloffMultiplier = 1f;
+                            if (hitDistance > optimalDistance)
+                            {
+                                float t = Mathf.Clamp01((hitDistance - optimalDistance) / (maxDistance - optimalDistance));
+                                falloffMultiplier = Mathf.Lerp(1f, minDamageMultiplier, t);
+                            }
+
+                            int currentBaseDamage = Damage > 0 ? Damage : damage;
+                            int finalDamage = Mathf.RoundToInt(currentBaseDamage * falloffMultiplier);
+
+                            PlayerRef shooterPlayerRef = Object.InputAuthority;
+                            zombie.RPC_RequestDamage(finalDamage, shooterPlayerRef);
+                        }
+                    }
+                }
+
+                if (applyDamage)
+                {
+                    RPC_RenderShotEffect(fireOrigin, spreadDir, hitDistance);
                 }
             }
         }
-
-        if (_laserLine != null && HasInputAuthority)
+        else
         {
-            _laserLine.useWorldSpace = true;
-            _laserLine.SetPosition(0, fireOrigin);
-            _laserLine.SetPosition(1, endPosition);
-            _laserLine.enabled = true;
-        }
+            // ==========================================
+            // 🟢 ระบบยิงแบบปืนปกติ (Assault Rifle/Pistol)
+            // ==========================================
+            Vector3 endPosition = fireOrigin + (direction * weaponRange);
+            float hitDistance = weaponRange;
 
-        if (applyDamage)
-        {
-            RPC_RenderShotEffect(fireOrigin, direction);
+            if (Physics.SphereCast(fireOrigin, shotRadius, direction, out RaycastHit hit, weaponRange, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            {
+                endPosition = fireOrigin + (direction * hit.distance);
+                hitDistance = hit.distance;
+
+                if (applyDamage && HasStateAuthority)
+                {
+                    ZombieAI zombie = hit.collider.GetComponentInParent<ZombieAI>();
+                    if (zombie != null && zombie.Object != null && zombie.Object.IsValid)
+                    {
+                        PlayerRef shooterPlayerRef = Object.InputAuthority;
+                        int currentDamage = Damage > 0 ? Damage : damage;
+                        zombie.RPC_RequestDamage(currentDamage, shooterPlayerRef);
+                    }
+                }
+            }
+
+            if (_laserLine != null && HasInputAuthority)
+            {
+                _laserLine.useWorldSpace = true;
+                _laserLine.SetPosition(0, fireOrigin);
+                _laserLine.SetPosition(1, endPosition);
+                _laserLine.enabled = true;
+            }
+
+            if (applyDamage)
+            {
+                RPC_RenderShotEffect(fireOrigin, direction, hitDistance);
+            }
         }
     }
 
@@ -486,9 +526,11 @@ public class PlayerWeapon : NetworkBehaviour
         return value.normalized;
     }
 
+    // 🟢 อัปเดต Effect ให้รองรับระยะทาง (เวลาทิ้ง Debug Ray)
     [Rpc(RpcSources.StateAuthority, RpcTargets.All, Channel = RpcChannel.Unreliable)]
-    private void RPC_RenderShotEffect(Vector3 muzzlePosition, Vector3 fireDirection)
+    private void RPC_RenderShotEffect(Vector3 muzzlePosition, Vector3 fireDirection, float distance)
     {
-        Debug.DrawRay(muzzlePosition, fireDirection * weaponRange, Color.yellow, 0.1f);
+        float drawDist = distance > 0 ? distance : weaponRange;
+        Debug.DrawRay(muzzlePosition, fireDirection * drawDist, Color.yellow, 0.1f);
     }
 }
