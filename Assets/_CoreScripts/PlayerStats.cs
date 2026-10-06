@@ -24,6 +24,14 @@ public class PlayerStats : NetworkBehaviour
     // 🟢 ตัวแปรสำหรับโหมดอมตะ
     [Networked] public NetworkBool IsImmortal { get; set; }
 
+    // Name entered on the main menu. The overhead nameplate is not built yet; read OverheadName when it is.
+    [Networked] public NetworkString<_16> DisplayName { get; set; }
+
+    public string OverheadName
+    {
+        get { return DisplayName.Value; }
+    }
+
     private Renderer[] _allRenderers;
     private Collider[] _allColliders;
     private bool _visualsHidden;
@@ -91,6 +99,7 @@ public class PlayerStats : NetworkBehaviour
             IsDead = false;
             IsImmortal = false; // 🟢 รีเซ็ตสถานะอมตะเมื่อเริ่มสปอว์น
             RespawnTimer = TickTimer.None;
+            DisplayName = NetworkMenuManager.SavedPlayerName;
         }
 
         RefreshVisuals();
