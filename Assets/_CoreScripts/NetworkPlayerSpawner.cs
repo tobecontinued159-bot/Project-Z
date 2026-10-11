@@ -17,6 +17,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
     private readonly List<NetworkObject> _spawnedPlayers = new List<NetworkObject>();
     private NetworkRunner _runner;
     private static bool _hasSpawnedLocalPlayer;
+    private static NetworkObject _localPlayerObject;
 
     private Camera _cachedMainCamera;
 
@@ -57,18 +58,10 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
     private async void Start()
     {
-        NetworkRunner existingRunner = FindExistingRunningRunner();
-        if (existingRunner != null)
+        NetworkRunner externalRunner = FindExternalRunner();
+        if (externalRunner != null)
         {
-            _runner = existingRunner;
-            DisableFusionDebugIMGUI();
-            _runner.AddCallbacks(this);
-
-            if (_runner.LocalPlayer.IsRealPlayer)
-            {
-                OnPlayerJoined(_runner, _runner.LocalPlayer);
-            }
-
+            await AdoptExternalRunner(externalRunner);
             return;
         }
 
@@ -80,7 +73,9 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
         if (_runner.IsRunning)
         {
-            _runner.AddCallbacks(this);
+            DisableFusionDebugIMGUI();
+            Subscribe(_runner);
+            SpawnLocalPlayerIfNeeded(_runner, _runner.LocalPlayer);
             return;
         }
 
@@ -128,19 +123,86 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
         DisableFusionDebugIMGUI();
     }
 
-    private static NetworkRunner FindExistingRunningRunner()
+    private NetworkRunner FindExternalRunner()
+    {
+        NetworkRunner[] runners = FindObjectsByType<NetworkRunner>(FindObjectsSortMode.None);
+        NetworkRunner running = null;
+        NetworkRunner idle = null;
+        for (int i = 0; i < runners.Length; i++)
+        {
+            NetworkRunner runner = runners[i];
+            if (runner == null || runner.gameObject == gameObject)
+            {
+                continue;
+            }
+
+            if (runner.IsRunning)
+            {
+                running = runner;
+            }
+            else if (idle == null)
+            {
+                idle = runner;
+            }
+        }
+
+        return running != null ? running : idle;
+    }
+
+    private async System.Threading.Tasks.Task AdoptExternalRunner(NetworkRunner runner)
+    {
+        _runner = runner;
+        DisableFusionDebugIMGUI();
+        DisableUnusedLocalRunner(runner);
+        ShutdownDuplicateRunners(runner);
+        Subscribe(runner);
+
+        float timeout = 10f;
+        while (runner != null && runner.IsRunning == false && timeout > 0f)
+        {
+            timeout -= Time.unscaledDeltaTime;
+            await System.Threading.Tasks.Task.Yield();
+        }
+
+        if (runner == null || runner.IsRunning == false || runner.LocalPlayer.IsRealPlayer == false)
+        {
+            return;
+        }
+
+        SpawnLocalPlayerIfNeeded(runner, runner.LocalPlayer);
+    }
+
+    private void DisableUnusedLocalRunner(NetworkRunner keptRunner)
+    {
+        NetworkRunner localRunner = GetComponent<NetworkRunner>();
+        if (localRunner == null || localRunner == keptRunner || localRunner.IsRunning)
+        {
+            return;
+        }
+
+        localRunner.enabled = false;
+    }
+
+    private static void ShutdownDuplicateRunners(NetworkRunner keptRunner)
     {
         NetworkRunner[] runners = FindObjectsByType<NetworkRunner>(FindObjectsSortMode.None);
         for (int i = 0; i < runners.Length; i++)
         {
             NetworkRunner runner = runners[i];
-            if (runner != null && runner.IsRunning)
+            if (runner == null || runner == keptRunner || runner.IsRunning == false)
             {
-                return runner;
+                continue;
             }
-        }
 
-        return null;
+            Debug.LogWarning("NetworkPlayerSpawner: shutting down duplicate runner on " + runner.gameObject.name);
+            runner.Shutdown(false);
+        }
+    }
+
+    private void Subscribe(NetworkRunner runner)
+    {
+        runner.RemoveCallbacks(this);
+        runner.AddCallbacks(this);
     }
 
     private static void DisableFusionDebugIMGUI()
@@ -176,39 +238,99 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player)
     {
-        if (player == runner.LocalPlayer)
+        if (player != runner.LocalPlayer)
         {
-            if (_hasSpawnedLocalPlayer)
-            {
-                return;
-            }
-
-            if (playerPrefab == null)
-            {
-                Debug.LogError("NetworkPlayerSpawner: playerPrefab is not assigned.");
-                return;
-            }
-
-            _hasSpawnedLocalPlayer = true;
-
-            if (TryGetSpawnPose(player, out Vector3 spawnPosition, out Quaternion spawnRotation) == false)
-            {
-                spawnPosition = new Vector3(0f, 1f, 0f);
-                spawnRotation = Quaternion.identity;
-            }
-
-            NetworkObject networkPlayer = runner.Spawn(playerPrefab, spawnPosition, spawnRotation, player);
-            if (networkPlayer == null)
-            {
-                _hasSpawnedLocalPlayer = false;
-                Debug.LogError("NetworkPlayerSpawner: runner.Spawn returned null. Check that PlayerPrefab is a NetworkObject and has been baked.");
-                return;
-            }
-
-            _spawnedPlayers.Add(networkPlayer);
-            RegisterPlayer(networkPlayer);
-            Debug.Log($"Spawned local player for {player} at {spawnPosition}");
+            return;
         }
+
+        if (_runner != null && runner != _runner)
+        {
+            Debug.LogWarning("NetworkPlayerSpawner: ignored PlayerJoined from a duplicate runner.");
+            return;
+        }
+
+        SpawnLocalPlayerIfNeeded(runner, player);
+    }
+
+    private void SpawnLocalPlayerIfNeeded(NetworkRunner runner, PlayerRef player)
+    {
+        if (player != runner.LocalPlayer)
+        {
+            return;
+        }
+
+        if (_hasSpawnedLocalPlayer || HasLocalPlayer(runner, player))
+        {
+            _hasSpawnedLocalPlayer = true;
+            return;
+        }
+
+        if (playerPrefab == null)
+        {
+            Debug.LogError("NetworkPlayerSpawner: playerPrefab is not assigned.");
+            return;
+        }
+
+        _hasSpawnedLocalPlayer = true;
+
+        if (TryGetSpawnPose(player, out Vector3 spawnPosition, out Quaternion spawnRotation) == false)
+        {
+            spawnPosition = new Vector3(0f, 1f, 0f);
+            spawnRotation = Quaternion.identity;
+        }
+
+        NetworkObject networkPlayer = runner.Spawn(playerPrefab, spawnPosition, spawnRotation, player);
+        if (networkPlayer == null)
+        {
+            _hasSpawnedLocalPlayer = false;
+            Debug.LogError("NetworkPlayerSpawner: runner.Spawn returned null. Check that PlayerPrefab is a NetworkObject and has been baked.");
+            return;
+        }
+
+        _localPlayerObject = networkPlayer;
+        runner.SetPlayerObject(player, networkPlayer);
+        _spawnedPlayers.Add(networkPlayer);
+        RegisterPlayer(networkPlayer);
+        Debug.Log($"Spawned local player for {player} at {spawnPosition}");
+    }
+
+    private bool HasLocalPlayer(NetworkRunner runner, PlayerRef player)
+    {
+        if (_localPlayerObject != null)
+        {
+            return true;
+        }
+
+        if (runner != null && runner.TryGetPlayerObject(player, out NetworkObject registered) && registered != null)
+        {
+            _localPlayerObject = registered;
+            return true;
+        }
+
+        for (int i = 0; i < AllPlayers.Count; i++)
+        {
+            NetworkObject candidate = AllPlayers[i];
+            if (candidate != null && candidate.InputAuthority == player)
+            {
+                _localPlayerObject = candidate;
+                return true;
+            }
+        }
+
+        PlayerStats[] players = FindObjectsByType<PlayerStats>(FindObjectsSortMode.None);
+        for (int i = 0; i < players.Length; i++)
+        {
+            PlayerStats stats = players[i];
+            if (stats == null || stats.Object == null || stats.Object.InputAuthority != player)
+            {
+                continue;
+            }
+
+            _localPlayerObject = stats.Object;
+            return true;
+        }
+
+        return false;
     }
 
     public bool TryGetSpawnPose(PlayerRef player, out Vector3 position, out Quaternion rotation)
@@ -364,8 +486,14 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
     public void OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input) { }
     public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason)
     {
+        if (_runner != null && runner != _runner)
+        {
+            return;
+        }
+
         _spawnedPlayers.Clear();
         AllPlayers.Clear();
+        _localPlayerObject = null;
         _hasSpawnedLocalPlayer = false;
         _fireRequestPending = false;
         _reloadRequestPending = false;
