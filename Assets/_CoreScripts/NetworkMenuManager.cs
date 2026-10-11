@@ -8,12 +8,13 @@ using Photon.Realtime;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 /// <summary>
 /// MainMenu flow for Photon Fusion 2 Shared Mode.
 /// Switches the existing panels, validates the player name, and creates or joins sessions.
-/// Attach this to Canvas. Button OnClick events are registered in code.
+/// A successful create or join loads GameScene directly. Attach this to Canvas.
 /// </summary>
 public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
 {
@@ -28,6 +29,7 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
     public static readonly string[] MapLabels = { "SCHOOL", "HOSPITAL", "WAREHOUSE" };
 
     private const string UserIdPrefsKey = "FusionUserId";
+    private const string GameScenePath = "Assets/Scenes/GameScene.unity";
 
     [Header("Panels")]
     [SerializeField] private GameObject mainPanel;
@@ -36,7 +38,6 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
     [SerializeField] private GameObject joinPanel;
     [SerializeField] private GameObject optionPanel;
     [SerializeField] private GameObject loadingPanel;
-    [SerializeField] private GameObject lobbyPanel;
 
     [Header("Main")]
     [SerializeField] private TMP_InputField nameInput;
@@ -53,9 +54,7 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
     [SerializeField] private LoadingSpinner loadingSpinner;
 
     [Header("Fusion")]
-    [Tooltip("NetworkObject prefab with LobbyManager. The host spawns it when the session starts. The gameplay scene is loaded later from the lobby.")]
-    [SerializeField] private NetworkObject lobbyStatePrefab;
-    [Tooltip("Kept so existing menu data stays assigned. LobbyManager loads the gameplay scene by name.")]
+    [Tooltip("Build index of Assets/Scenes/GameScene.unity. Used when the path lookup fails.")]
     [SerializeField] private int gameplaySceneBuildIndex = 1;
     [SerializeField] private float connectionTimeoutSeconds = 20f;
     [SerializeField] private float errorDisplaySeconds = 2.5f;
@@ -64,7 +63,7 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private NetworkRunner _runner;
     private AuthenticationValues _auth;
-    private Task<StartGameResult> _lobbyTask;
+    private Task<StartGameResult> _sessionListTask;
     private GameObject _returnPanel;
     private Button _easyButton;
     private Button _normalButton;
@@ -79,7 +78,6 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
     private bool _listenersBound;
     private bool _isStartingSession;
     private bool _matchStarted;
-    private bool _lobbyStateSpawned;
 
     public static NetworkMenuManager Instance { get; private set; }
 
@@ -88,6 +86,7 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
         get { return gameplaySceneBuildIndex; }
     }
     private bool _timedOut;
+    private bool _gameSceneMissing;
     private bool _alive = true;
 
     public static string SavedPlayerName
@@ -166,22 +165,6 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
         {
             _runner.RemoveCallbacks(this);
         }
-    }
-
-    public void LeaveLobby()
-    {
-        _lobbyStateSpawned = false;
-        _isStartingSession = false;
-        _matchStarted = false;
-        LobbyCarry.Clear();
-        HideLoading();
-        ShowMenuPanel(mainPanel);
-        LeaveLobbyAsync();
-    }
-
-    private async void LeaveLobbyAsync()
-    {
-        await ShutdownRunner(false);
     }
 
     public void OnPlayPressed()
@@ -344,10 +327,16 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
                 return;
             }
 
+            if (_gameSceneMissing)
+            {
+                await PresentFailure("Add Assets/Scenes/GameScene.unity to Build Settings.");
+                return;
+            }
+
             if (result.Ok)
             {
                 _matchStarted = true;
-                EnterLobby();
+                _isStartingSession = false;
                 return;
             }
 
@@ -365,16 +354,24 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private async Task<StartGameResult> RunStart(MatchKind kind, string sessionName)
     {
-        if (_lobbyTask != null && _lobbyTask.IsCompleted == false)
+        if (_sessionListTask != null && _sessionListTask.IsCompleted == false)
         {
             try
             {
-                await _lobbyTask;
+                await _sessionListTask;
             }
             catch (Exception exception)
             {
                 Debug.LogException(exception);
             }
+        }
+
+        _gameSceneMissing = false;
+        if (TryCreateGameScene(out NetworkSceneInfo gameScene) == false)
+        {
+            _gameSceneMissing = true;
+            Debug.LogError("NetworkMenuManager: add " + GameScenePath + " to File > Build Settings. Fusion would otherwise start with no scene.");
+            return default;
         }
 
         NetworkRunner runner = EnsureRunner();
@@ -384,7 +381,7 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
             runner.ProvideInput = true;
             using (CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(connectionTimeoutSeconds)))
             {
-                StartGameArgs args = BuildArgs(runner, kind, sessionName, cts.Token);
+                StartGameArgs args = BuildArgs(runner, kind, sessionName, cts.Token, gameScene);
                 Task<StartGameResult> startTask = runner.StartGame(args);
                 Task timeoutTask = Task.Delay(TimeSpan.FromSeconds(Mathf.Max(1f, connectionTimeoutSeconds) + 2f));
                 Task finished = await Task.WhenAny(startTask, timeoutTask);
@@ -410,16 +407,17 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
         return default;
     }
 
-    private StartGameArgs BuildArgs(NetworkRunner runner, MatchKind kind, string sessionName, CancellationToken token)
+    private StartGameArgs BuildArgs(NetworkRunner runner, MatchKind kind, string sessionName, CancellationToken token, NetworkSceneInfo gameScene)
     {
         StartGameArgs args = new StartGameArgs
         {
-            GameMode = GameMode.Shared,
+            GameMode = GameModeFor(kind),
             SessionName = kind == MatchKind.QuickPlay ? null : sessionName,
+            Scene = gameScene,
             SceneManager = runner.GetComponent<INetworkSceneManager>(),
             ObjectProvider = runner.GetComponent<INetworkObjectProvider>(),
             AuthValues = BuildAuth(),
-            IsVisible = true,
+            IsVisible = kind != MatchKind.Create || _privateRoom == false,
             IsOpen = true,
             StartGameCancellationToken = token
         };
@@ -444,6 +442,21 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
         }
 
         return args;
+    }
+
+    private static GameMode GameModeFor(MatchKind kind)
+    {
+        if (kind == MatchKind.Create)
+        {
+            return GameMode.Host;
+        }
+
+        if (kind == MatchKind.Join)
+        {
+            return GameMode.Client;
+        }
+
+        return GameMode.AutoHostOrClient;
     }
 
     private async void RefreshSessionLobby()
@@ -476,14 +489,14 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
-        if (_lobbyTask != null && _lobbyTask.IsCompleted == false)
+        if (_sessionListTask != null && _sessionListTask.IsCompleted == false)
         {
-            await _lobbyTask;
+            await _sessionListTask;
             return;
         }
 
-        _lobbyTask = runner.JoinSessionLobby(SessionLobby.Shared, null, BuildAuth(), null, CancellationToken.None, true);
-        StartGameResult result = await _lobbyTask;
+        _sessionListTask = runner.JoinSessionLobby(SessionLobby.ClientServer, null, BuildAuth(), null, CancellationToken.None, true);
+        StartGameResult result = await _sessionListTask;
         if (_alive == false)
         {
             return;
@@ -627,49 +640,47 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
         SetPanel(createPanel, panel == createPanel);
         SetPanel(joinPanel, panel == joinPanel);
         SetPanel(optionPanel, panel == optionPanel);
-        SetPanel(lobbyPanel, panel == lobbyPanel);
     }
 
-    private void EnterLobby()
+    private bool TryCreateGameScene(out NetworkSceneInfo sceneInfo)
     {
-        _isStartingSession = false;
-        HideLoading();
-        ShowMenuPanel(lobbyPanel);
-        TrySpawnLobbyState();
-    }
-
-    private void TrySpawnLobbyState()
-    {
-        if (_lobbyStateSpawned || _runner == null || _runner.IsRunning == false)
+        sceneInfo = default;
+        int index = SceneUtility.GetBuildIndexByScenePath(GameScenePath);
+        if (index < 0)
         {
-            return;
+            for (int i = 0; i < SceneManager.sceneCountInBuildSettings; i++)
+            {
+                string path = SceneUtility.GetScenePathByBuildIndex(i);
+                if (string.IsNullOrEmpty(path))
+                {
+                    continue;
+                }
+
+                if (path.EndsWith("/GameScene.unity") || path.EndsWith("\\GameScene.unity"))
+                {
+                    index = i;
+                    break;
+                }
+            }
         }
 
-        if (_runner.IsSharedModeMasterClient == false)
+        if (index < 0 && gameplaySceneBuildIndex >= 0 && gameplaySceneBuildIndex < SceneManager.sceneCountInBuildSettings)
         {
-            return;
+            string configuredPath = SceneUtility.GetScenePathByBuildIndex(gameplaySceneBuildIndex);
+            if (string.IsNullOrEmpty(configuredPath) == false && configuredPath.EndsWith("GameScene.unity"))
+            {
+                index = gameplaySceneBuildIndex;
+            }
         }
 
-        if (lobbyStatePrefab == null)
+        if (index < 0)
         {
-            Debug.LogError("NetworkMenuManager: assign Lobby State Prefab (a prefab with NetworkObject and LobbyManager).");
-            return;
+            return false;
         }
 
-        NetworkObject spawned = _runner.Spawn(
-            lobbyStatePrefab,
-            Vector3.zero,
-            Quaternion.identity,
-            _runner.LocalPlayer,
-            null,
-            NetworkSpawnFlags.SharedModeStateAuthMasterClient);
-        if (spawned == null)
-        {
-            Debug.LogError("NetworkMenuManager: failed to spawn LobbyManager. Bake the prefab in the Fusion prefab table.");
-            return;
-        }
-
-        _lobbyStateSpawned = true;
+        sceneInfo = new NetworkSceneInfo();
+        sceneInfo.AddSceneRef(SceneRef.FromIndex(index), LoadSceneMode.Single, LocalPhysicsMode.None, true);
+        return sceneInfo.SceneCount > 0;
     }
 
     private bool TrySavePlayerName()
@@ -844,9 +855,10 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
             loadingPanel = FindObject(root, "LoadingPanel");
         }
 
-        if (lobbyPanel == null)
+        GameObject leftoverLobby = FindObject(root, "LobbyPanel");
+        if (leftoverLobby != null)
         {
-            lobbyPanel = FindObject(root, "LobbyPanel");
+            leftoverLobby.SetActive(false);
         }
 
         if (nameInput == null)
@@ -903,14 +915,9 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private void WarnIfMissing()
     {
-        if (mainPanel == null || modePanel == null || createPanel == null || joinPanel == null || optionPanel == null || loadingPanel == null || lobbyPanel == null)
+        if (mainPanel == null || modePanel == null || createPanel == null || joinPanel == null || optionPanel == null || loadingPanel == null)
         {
             Debug.LogWarning("NetworkMenuManager: one or more panels were not found. Put this component on Canvas.");
-        }
-
-        if (lobbyStatePrefab == null)
-        {
-            Debug.LogWarning("NetworkMenuManager: assign Lobby State Prefab so the lobby can sync ready state and character picks.");
         }
 
         if (nameInput == null)

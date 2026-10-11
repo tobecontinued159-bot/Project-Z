@@ -190,9 +190,9 @@ public class LobbyManager : NetworkBehaviour
 
     public void OnLeavePressed()
     {
-        if (NetworkMenuManager.Instance != null)
+        if (Runner != null && Runner.IsRunning)
         {
-            NetworkMenuManager.Instance.LeaveLobby();
+            Runner.Shutdown();
         }
     }
 

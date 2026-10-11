@@ -28,6 +28,10 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
     // Flag ùùùù?ùù???ù·ùùùùùù? Update ùùù? OnInput
     private bool _fireRequestPending;
     private bool _reloadRequestPending;
+    private readonly List<PlayerRef> _playersWaitingToSpawn = new List<PlayerRef>();
+    private static bool _spawnInProgress;
+    private int _framesRunnerReady;
+    private bool _refusedScenePrefab;
 
     public void SetPlayerPrefab(NetworkObject prefab)
     {
@@ -41,6 +45,8 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
     private void Update()
     {
+        ProcessSpawnQueue();
+
         if (PlayerInputLock.IsTerminalOpen)
         {
             _fireRequestPending = false;
@@ -61,10 +67,6 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
         // ????????????????? Lobby ???? OnPlayerJoined ?????????????????????
         // ???? Runner ????? ??????????????????? spawn ????
-        if (_hasSpawnedLocalPlayer == false && _runner != null && _runner.IsRunning && _runner.CanSpawn && _runner.LocalPlayer.IsRealPlayer)
-        {
-            OnPlayerJoined(_runner, _runner.LocalPlayer);
-        }
     }
 
     private async void Start()
@@ -91,6 +93,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
         DisableFusionDebugIMGUI();
 
+        _runner.ProvideInput = true;
         _runner.AddCallbacks(this);
         DontDestroyOnLoad(gameObject);
 
@@ -234,39 +237,130 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player)
     {
-        if (player != runner.LocalPlayer)
-        {
-            return;
-        }
-
         if (_runner != null && runner != _runner)
         {
             Debug.LogWarning("NetworkPlayerSpawner: ignored PlayerJoined from a duplicate runner.");
             return;
         }
 
-        SpawnLocalPlayerIfNeeded(runner, player);
+        QueuePlayerSpawn(runner, player);
     }
 
-    private void SpawnLocalPlayerIfNeeded(NetworkRunner runner, PlayerRef player)
+    private static bool IsRunnerReadyToSpawn(NetworkRunner runner)
     {
-        if (player != runner.LocalPlayer)
+        if (runner == null || runner.IsStarting || runner.IsShutdown || runner.IsRunning == false)
+        {
+            return false;
+        }
+
+        // Spawning while the scene is still loading allocates an id before Simulation can,
+        // which throws in GetNextId and leaves the clone owned by this runner.
+        if (runner.IsSceneManagerBusy)
+        {
+            return false;
+        }
+
+        return runner.CanSpawn;
+    }
+
+    private static bool HasAuthorityToSpawn(NetworkRunner runner, PlayerRef player)
+    {
+        if (runner == null || runner.IsRunning == false || player.IsRealPlayer == false)
+        {
+            return false;
+        }
+
+        // Host / Server: only the server has state authority to create player objects.
+        if (runner.GameMode != GameMode.Shared)
+        {
+            return runner.IsServer;
+        }
+
+        // Shared: the peer that calls Spawn becomes state authority, so only spawn yourself.
+        return player == runner.LocalPlayer;
+    }
+
+    private void QueuePlayerSpawn(NetworkRunner runner, PlayerRef player)
+    {
+        if (_refusedScenePrefab || _spawnInProgress || HasAuthorityToSpawn(runner, player) == false)
         {
             return;
         }
 
-        if (_hasSpawnedLocalPlayer || HasLocalPlayer(runner, player))
-        {
-            _hasSpawnedLocalPlayer = true;
-            return;
-        }
-
-        if (runner.IsRunning == false || runner.CanSpawn == false)
+        if (player == runner.LocalPlayer && _hasSpawnedLocalPlayer)
         {
             return;
         }
 
-        NetworkObject prefab = ResolvePlayerPrefab();
+        if (HasLocalPlayer(runner, player))
+        {
+            if (player == runner.LocalPlayer)
+            {
+                _hasSpawnedLocalPlayer = true;
+            }
+
+            return;
+        }
+
+        for (int i = 0; i < _playersWaitingToSpawn.Count; i++)
+        {
+            if (_playersWaitingToSpawn[i] == player)
+            {
+                return;
+            }
+        }
+
+        _playersWaitingToSpawn.Add(player);
+    }
+
+    private void ProcessSpawnQueue()
+    {
+        if (_refusedScenePrefab || _spawnInProgress)
+        {
+            return;
+        }
+
+        if (_runner != null && _hasSpawnedLocalPlayer == false && IsRunnerReadyToSpawn(_runner))
+        {
+            QueuePlayerSpawn(_runner, _runner.LocalPlayer);
+        }
+
+        if (_playersWaitingToSpawn.Count == 0 || IsRunnerReadyToSpawn(_runner) == false)
+        {
+            _framesRunnerReady = 0;
+            return;
+        }
+
+        _framesRunnerReady++;
+        if (_framesRunnerReady < 2)
+        {
+            return;
+        }
+
+        PlayerRef player = _playersWaitingToSpawn[0];
+        _playersWaitingToSpawn.RemoveAt(0);
+        _framesRunnerReady = 0;
+        SpawnPlayer(_runner, player);
+    }
+
+    private void SpawnPlayer(NetworkRunner runner, PlayerRef player)
+    {
+        if (_spawnInProgress || _refusedScenePrefab || HasAuthorityToSpawn(runner, player) == false)
+        {
+            return;
+        }
+
+        if (HasLocalPlayer(runner, player))
+        {
+            if (player == runner.LocalPlayer)
+            {
+                _hasSpawnedLocalPlayer = true;
+            }
+
+            return;
+        }
+
+        NetworkObject prefab = player == runner.LocalPlayer ? ResolvePlayerPrefab() : playerPrefab;
         if (prefab == null)
         {
             if (_loggedMissingPrefab == false)
@@ -278,7 +372,13 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
-        _hasSpawnedLocalPlayer = true;
+        if (prefab.gameObject.scene.IsValid())
+        {
+            _refusedScenePrefab = true;
+            _playersWaitingToSpawn.Clear();
+            Debug.LogError("NetworkPlayerSpawner: player prefab is a scene instance already owned by the runner. Assign the prefab asset from the Project window.");
+            return;
+        }
 
         if (TryGetSpawnPose(player, out Vector3 spawnPosition, out Quaternion spawnRotation) == false)
         {
@@ -286,19 +386,32 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
             spawnRotation = Quaternion.identity;
         }
 
+        // Block every other spawner before Instantiate, so a second Spawn cannot claim the same clone.
+        _spawnInProgress = true;
+
         NetworkObject networkPlayer = runner.Spawn(prefab, spawnPosition, spawnRotation, player);
         if (networkPlayer == null)
         {
-            _hasSpawnedLocalPlayer = false;
             Debug.LogError("NetworkPlayerSpawner: runner.Spawn returned null. Check that PlayerPrefab is a NetworkObject and has been baked.");
             return;
         }
 
-        _localPlayerObject = networkPlayer;
+        if (networkPlayer.transform.parent != null)
+        {
+            networkPlayer.transform.SetParent(null, true);
+        }
+
+        if (player == runner.LocalPlayer)
+        {
+            _hasSpawnedLocalPlayer = true;
+            _localPlayerObject = networkPlayer;
+        }
+
         runner.SetPlayerObject(player, networkPlayer);
         _spawnedPlayers.Add(networkPlayer);
         RegisterPlayer(networkPlayer);
-        Debug.Log($"Spawned local player for {player} at {spawnPosition}");
+        _spawnInProgress = false;
+        Debug.Log("Spawned player " + player + " at " + spawnPosition);
     }
 
     private NetworkObject ResolvePlayerPrefab()
@@ -324,7 +437,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
     private bool HasLocalPlayer(NetworkRunner runner, PlayerRef player)
     {
-        if (_localPlayerObject != null)
+        if (_localPlayerObject != null && runner != null && player == runner.LocalPlayer)
         {
             return true;
         }
@@ -520,9 +633,13 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
         }
 
         _spawnedPlayers.Clear();
+        _playersWaitingToSpawn.Clear();
         AllPlayers.Clear();
         _localPlayerObject = null;
         _hasSpawnedLocalPlayer = false;
+        _spawnInProgress = false;
+        _framesRunnerReady = 0;
+        _refusedScenePrefab = false;
         _fireRequestPending = false;
         _reloadRequestPending = false;
         Debug.Log($"Fusion shutdown: {shutdownReason}");
@@ -553,12 +670,12 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
-        if (runner.IsRunning == false || runner.LocalPlayer.IsRealPlayer == false)
+        if (runner == null || runner.IsRunning == false || runner.IsStarting)
         {
             return;
         }
 
-        OnPlayerJoined(runner, runner.LocalPlayer);
+        QueuePlayerSpawn(runner, runner.LocalPlayer);
     }
     public void OnSessionListUpdated(NetworkRunner runner, List<SessionInfo> sessionList) { }
     public void OnCustomAuthenticationResponse(NetworkRunner runner, Dictionary<string, object> data) { }
