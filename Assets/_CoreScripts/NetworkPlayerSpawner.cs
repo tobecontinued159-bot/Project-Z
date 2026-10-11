@@ -16,7 +16,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
     private readonly List<NetworkObject> _spawnedPlayers = new List<NetworkObject>();
     private NetworkRunner _runner;
-    private bool _hasSpawnedLocalPlayer;
+    private static bool _hasSpawnedLocalPlayer;
 
     private Camera _cachedMainCamera;
 
@@ -66,7 +66,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
             if (_runner.LocalPlayer.IsRealPlayer)
             {
-                SpawnLocalPlayer(_runner, _runner.LocalPlayer);
+                OnPlayerJoined(_runner, _runner.LocalPlayer);
             }
 
             return;
@@ -178,40 +178,37 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (player == runner.LocalPlayer)
         {
-            SpawnLocalPlayer(runner, player);
-        }
-    }
+            if (_hasSpawnedLocalPlayer)
+            {
+                return;
+            }
 
-    private void SpawnLocalPlayer(NetworkRunner runner, PlayerRef player)
-    {
-        if (_hasSpawnedLocalPlayer)
-        {
-            return;
-        }
+            if (playerPrefab == null)
+            {
+                Debug.LogError("NetworkPlayerSpawner: playerPrefab is not assigned.");
+                return;
+            }
 
-        if (playerPrefab == null)
-        {
-            Debug.LogError("NetworkPlayerSpawner: playerPrefab is not assigned.");
-            return;
-        }
+            _hasSpawnedLocalPlayer = true;
 
-        if (TryGetSpawnPose(player, out Vector3 spawnPosition, out Quaternion spawnRotation) == false)
-        {
-            spawnPosition = new Vector3(0f, 1f, 0f);
-            spawnRotation = Quaternion.identity;
-        }
+            if (TryGetSpawnPose(player, out Vector3 spawnPosition, out Quaternion spawnRotation) == false)
+            {
+                spawnPosition = new Vector3(0f, 1f, 0f);
+                spawnRotation = Quaternion.identity;
+            }
 
-        NetworkObject networkPlayer = runner.Spawn(playerPrefab, spawnPosition, spawnRotation, player);
-        if (networkPlayer == null)
-        {
-            Debug.LogError("NetworkPlayerSpawner: runner.Spawn returned null. Check that PlayerPrefab is a NetworkObject and has been baked.");
-            return;
-        }
+            NetworkObject networkPlayer = runner.Spawn(playerPrefab, spawnPosition, spawnRotation, player);
+            if (networkPlayer == null)
+            {
+                _hasSpawnedLocalPlayer = false;
+                Debug.LogError("NetworkPlayerSpawner: runner.Spawn returned null. Check that PlayerPrefab is a NetworkObject and has been baked.");
+                return;
+            }
 
-        _hasSpawnedLocalPlayer = true;
-        _spawnedPlayers.Add(networkPlayer);
-        RegisterPlayer(networkPlayer);
-        Debug.Log($"Spawned local player for {player} at {spawnPosition}");
+            _spawnedPlayers.Add(networkPlayer);
+            RegisterPlayer(networkPlayer);
+            Debug.Log($"Spawned local player for {player} at {spawnPosition}");
+        }
     }
 
     public bool TryGetSpawnPose(PlayerRef player, out Vector3 position, out Quaternion rotation)
