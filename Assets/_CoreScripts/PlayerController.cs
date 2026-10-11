@@ -4,43 +4,159 @@ using UnityEngine;
 [RequireComponent(typeof(NetworkTransform))]
 public class PlayerController : NetworkBehaviour
 {
-    private static readonly int IsWalkingHash = Animator.StringToHash("isWalking");
+    private const int StartingHp = 100;
 
+    [Header("Movement")]
     [SerializeField] private float moveSpeed = 5f;
+
+    [Header("Animation")]
     [SerializeField] private Animator animator;
+
+    [Header("Shooting")]
+    [SerializeField] private Transform firePoint;
+    [SerializeField] private GameObject bulletPrefab;
+    [SerializeField] private float fireCooldownSeconds = 0.2f;
+
+    // พลังชีวิตที่ซิงค์ทั้งห้อง ถ้ามี PlayerStats จะตามค่า Health ของคอมโพเนนต์นั้น
+    [Networked] public int HP { get; set; }
+    [Networked] private TickTimer FireCooldown { get; set; }
 
     private PlayerStats _cachedStats;
 
     public override void Spawned()
     {
-        if (animator == null)
+        CacheAnimator();
+        CacheFirePoint();
+
+        if (HasStateAuthority)
         {
-            animator = GetComponentInChildren<Animator>(true);
+            HP = StartingHp;
+            FireCooldown = TickTimer.None;
         }
     }
 
     public override void FixedUpdateNetwork()
     {
-        if (EnsureStats() && _cachedStats.IsDead)
+        SyncHealthFromStats();
+
+        // ตายแล้วล็อกเดิน หันหน้า และยิง
+        if (IsPlayerDead())
         {
-            SetWalking(false);
+            UpdateAnimation(false);
             return;
         }
 
         if (HasInputAuthority && PlayerInputLock.IsTerminalOpen)
         {
-            SetWalking(false);
+            UpdateAnimation(false);
             return;
         }
 
+        // อินพุต WASD และจุดที่เมาส์ชี้ ถูกเก็บใน PlayerInput แล้วส่งเข้ามาทีละ tick
         if (GetInput(out PlayerInput input) == false)
         {
-            SetWalking(false);
+            UpdateAnimation(false);
             return;
         }
 
-        MovePlayer(input.MoveInput);
-        FaceLookPoint(input.LookDirection);
+        bool isWalking = MovePlayer(input.MoveInput);
+        FaceMouseAim(input.LookDirection);
+        UpdateAnimation(isWalking);
+
+        if (input.FirePressed)
+        {
+            TryFire();
+        }
+    }
+
+    private bool MovePlayer(Vector2 moveInput)
+    {
+        Vector3 moveDirection = new Vector3(moveInput.x, 0f, moveInput.y);
+        if (moveDirection.sqrMagnitude > 1f)
+        {
+            moveDirection.Normalize();
+        }
+
+        if (moveDirection.sqrMagnitude <= 0.001f)
+        {
+            return false;
+        }
+
+        transform.position += moveDirection * moveSpeed * Runner.DeltaTime;
+        return true;
+    }
+
+    private void FaceMouseAim(Vector3 lookPoint)
+    {
+        Vector3 flatOffset = lookPoint - transform.position;
+        flatOffset.y = 0f;
+        if (flatOffset.sqrMagnitude < 0.001f)
+        {
+            return;
+        }
+
+        transform.rotation = Quaternion.LookRotation(flatOffset, Vector3.up);
+    }
+
+    private void TryFire()
+    {
+        if (HasStateAuthority == false || bulletPrefab == null || firePoint == null)
+        {
+            return;
+        }
+
+        if (FireCooldown.ExpiredOrNotRunning(Runner) == false)
+        {
+            return;
+        }
+
+        NetworkObject bullet = bulletPrefab.GetComponent<NetworkObject>();
+        if (bullet == null)
+        {
+            Debug.LogError("PlayerController: bulletPrefab must be a baked Fusion NetworkObject.");
+            return;
+        }
+
+        Runner.Spawn(bullet, firePoint.position, firePoint.rotation, Object.InputAuthority);
+        FireCooldown = TickTimer.CreateFromSeconds(Runner, fireCooldownSeconds);
+    }
+
+    private void UpdateAnimation(bool isWalking)
+    {
+        if (HasStateAuthority == false)
+        {
+            return;
+        }
+
+        CacheAnimator();
+        if (animator == null)
+        {
+            return;
+        }
+
+        bool isDead = IsPlayerDead();
+        animator.SetBool("isWalking", isDead == false && isWalking);
+        animator.SetBool("isDead", isDead);
+    }
+
+    private void SyncHealthFromStats()
+    {
+        if (HasStateAuthority == false || EnsureStats() == false)
+        {
+            return;
+        }
+
+        HP = _cachedStats.Health;
+    }
+
+    private bool IsPlayerDead()
+    {
+        if (HP <= 0)
+        {
+            return true;
+        }
+
+        return EnsureStats() && _cachedStats.IsDead;
     }
 
     private bool EnsureStats()
@@ -55,47 +171,29 @@ public class PlayerController : NetworkBehaviour
             && _cachedStats.Object.IsValid;
     }
 
-    private void MovePlayer(Vector2 moveInput)
+    private void CacheAnimator()
     {
-        Vector3 moveDirection = new Vector3(moveInput.x, 0f, moveInput.y);
-
-        if (moveDirection.sqrMagnitude > 1f)
-        {
-            moveDirection.Normalize();
-        }
-
-        transform.position += moveDirection * moveSpeed * Runner.DeltaTime;
-        SetWalking(moveDirection.sqrMagnitude > 0.001f);
-    }
-
-    private void SetWalking(bool isWalking)
-    {
-        if (HasStateAuthority == false)
-        {
-            return;
-        }
-
         if (animator == null)
         {
             animator = GetComponentInChildren<Animator>(true);
         }
-
-        if (animator == null)
-        {
-            return;
-        }
-
-        animator.SetBool(IsWalkingHash, isWalking);
     }
 
-    private void FaceLookPoint(Vector3 lookPoint)
+    private void CacheFirePoint()
     {
-        if ((lookPoint - transform.position).sqrMagnitude < 0.001f)
+        if (firePoint != null)
         {
             return;
         }
 
-        lookPoint.y = transform.position.y;
-        transform.LookAt(lookPoint);
+        Transform[] children = GetComponentsInChildren<Transform>(true);
+        for (int i = 0; i < children.Length; i++)
+        {
+            if (children[i].name == "FirePoint")
+            {
+                firePoint = children[i];
+                return;
+            }
+        }
     }
 }

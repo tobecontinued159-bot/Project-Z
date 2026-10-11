@@ -8,6 +8,8 @@ using UnityEngine.SceneManagement;
 public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 {
     [SerializeField] private NetworkObject playerPrefab;
+    [Tooltip("Survivor 1 to Survivor 4, same order as the lobby cards. Used when the lobby selection has no prefab copy.")]
+    [SerializeField] private NetworkObject[] characterPrefabs = new NetworkObject[4];
     [SerializeField] private string sessionName = "TestRoom";
     public Transform[] SpawnPoints;
 
@@ -18,6 +20,8 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
     private NetworkRunner _runner;
     private static bool _hasSpawnedLocalPlayer;
     private static NetworkObject _localPlayerObject;
+    private bool _loggedMissingPrefab;
+    private bool _loggedMissingCharacter;
 
     private Camera _cachedMainCamera;
 
@@ -53,6 +57,13 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
         if (Input.GetKeyDown(KeyCode.R))
         {
             _reloadRequestPending = true;
+        }
+
+        // ????????????????? Lobby ???? OnPlayerJoined ?????????????????????
+        // ???? Runner ????? ??????????????????? spawn ????
+        if (_hasSpawnedLocalPlayer == false && _runner != null && _runner.IsRunning && _runner.CanSpawn && _runner.LocalPlayer.IsRealPlayer)
+        {
+            OnPlayerJoined(_runner, _runner.LocalPlayer);
         }
     }
 
@@ -255,9 +266,15 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
-        if (playerPrefab == null)
+        NetworkObject prefab = ResolvePlayerPrefab();
+        if (prefab == null)
         {
-            Debug.LogError("NetworkPlayerSpawner: playerPrefab is not assigned.");
+            if (_loggedMissingPrefab == false)
+            {
+                _loggedMissingPrefab = true;
+                Debug.LogError("NetworkPlayerSpawner: playerPrefab is not assigned.");
+            }
+
             return;
         }
 
@@ -269,7 +286,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
             spawnRotation = Quaternion.identity;
         }
 
-        NetworkObject networkPlayer = runner.Spawn(playerPrefab, spawnPosition, spawnRotation, player);
+        NetworkObject networkPlayer = runner.Spawn(prefab, spawnPosition, spawnRotation, player);
         if (networkPlayer == null)
         {
             _hasSpawnedLocalPlayer = false;
@@ -282,6 +299,27 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
         _spawnedPlayers.Add(networkPlayer);
         RegisterPlayer(networkPlayer);
         Debug.Log($"Spawned local player for {player} at {spawnPosition}");
+    }
+
+    private NetworkObject ResolvePlayerPrefab()
+    {
+        if (LobbyCarry.TryGetPrefab(out NetworkObject fromLobby))
+        {
+            return fromLobby;
+        }
+
+        if (LobbyCarry.HasChoice && characterPrefabs != null && LobbyCarry.CharacterIndex >= 0 && LobbyCarry.CharacterIndex < characterPrefabs.Length && characterPrefabs[LobbyCarry.CharacterIndex] != null)
+        {
+            return characterPrefabs[LobbyCarry.CharacterIndex];
+        }
+
+        if (LobbyCarry.HasChoice && _loggedMissingCharacter == false)
+        {
+            _loggedMissingCharacter = true;
+            Debug.LogWarning("NetworkPlayerSpawner: Survivor " + (LobbyCarry.CharacterIndex + 1) + " has no prefab. Assign it on LobbyManager or Character Prefabs here. Using Player Prefab.");
+        }
+
+        return playerPrefab;
     }
 
     private bool HasLocalPlayer(NetworkRunner runner, PlayerRef player)
