@@ -8,7 +8,6 @@ using Photon.Realtime;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
-using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 /// <summary>
@@ -54,7 +53,9 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
     [SerializeField] private LoadingSpinner loadingSpinner;
 
     [Header("Fusion")]
-    [Tooltip("Build Settings index of the gameplay scene. MainMenu is 0. The current gameplay scene is index 1.")]
+    [Tooltip("NetworkObject prefab with LobbyManager. The host spawns it when the session starts. The gameplay scene is loaded later from the lobby.")]
+    [SerializeField] private NetworkObject lobbyStatePrefab;
+    [Tooltip("Kept so existing menu data stays assigned. LobbyManager loads the gameplay scene by name.")]
     [SerializeField] private int gameplaySceneBuildIndex = 1;
     [SerializeField] private float connectionTimeoutSeconds = 20f;
     [SerializeField] private float errorDisplaySeconds = 2.5f;
@@ -78,7 +79,7 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
     private bool _listenersBound;
     private bool _isStartingSession;
     private bool _matchStarted;
-    private bool _startingMatch;
+    private bool _lobbyStateSpawned;
 
     public static NetworkMenuManager Instance { get; private set; }
 
@@ -169,9 +170,9 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
 
     public void LeaveLobby()
     {
+        _lobbyStateSpawned = false;
         _isStartingSession = false;
         _matchStarted = false;
-        _startingMatch = false;
         LobbyCarry.Clear();
         HideLoading();
         ShowMenuPanel(mainPanel);
@@ -180,7 +181,7 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private async void LeaveLobbyAsync()
     {
-        await DestroyRunner();
+        await ShutdownRunner(false);
     }
 
     public void OnPlayPressed()
@@ -323,15 +324,6 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
-        if (gameplaySceneBuildIndex < 0 || gameplaySceneBuildIndex >= SceneManager.sceneCountInBuildSettings)
-        {
-            Debug.LogError("NetworkMenuManager: Build Settings has no scene at index " + gameplaySceneBuildIndex + ".");
-            _returnPanel = returnPanel;
-            ShowLoading("Failed", "Gameplay scene is missing from Build Settings.");
-            await PresentFailure("Gameplay scene is missing from Build Settings.");
-            return;
-        }
-
         _isStartingSession = true;
         _matchStarted = false;
         _timedOut = false;
@@ -355,6 +347,7 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
             if (result.Ok)
             {
                 _matchStarted = true;
+                EnterLobby();
                 return;
             }
 
@@ -372,7 +365,6 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private async Task<StartGameResult> RunStart(MatchKind kind, string sessionName)
     {
-        _startingMatch = true;
         if (_lobbyTask != null && _lobbyTask.IsCompleted == false)
         {
             try
@@ -385,13 +377,7 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
             }
         }
 
-        await DestroyRunner();
-        if (_alive == false)
-        {
-            return default;
-        }
-
-        NetworkRunner runner = CreateFreshRunner();
+        NetworkRunner runner = EnsureRunner();
         bool retried = false;
         while (_alive)
         {
@@ -405,25 +391,20 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
                 if (finished != startTask)
                 {
                     _timedOut = true;
-                    await DestroyRunner();
+                    await ShutdownRunner(true);
                     return default;
                 }
 
                 StartGameResult result = await startTask;
-                if (result.Ok)
-                {
-                    return result;
-                }
-
-                await DestroyRunner();
-                if (retried || result.ShutdownReason != ShutdownReason.AlreadyRunning || _alive == false)
+                if (result.Ok || retried || result.ShutdownReason != ShutdownReason.AlreadyRunning)
                 {
                     return result;
                 }
             }
 
             retried = true;
-            runner = CreateFreshRunner();
+            await ShutdownRunner(false);
+            runner = EnsureRunner();
         }
 
         return default;
@@ -431,14 +412,10 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private StartGameArgs BuildArgs(NetworkRunner runner, MatchKind kind, string sessionName, CancellationToken token)
     {
-        NetworkSceneInfo sceneInfo = new NetworkSceneInfo();
-        sceneInfo.AddSceneRef(SceneRef.FromIndex(gameplaySceneBuildIndex), LoadSceneMode.Single);
-
         StartGameArgs args = new StartGameArgs
         {
             GameMode = GameMode.Shared,
             SessionName = kind == MatchKind.QuickPlay ? null : sessionName,
-            Scene = sceneInfo,
             SceneManager = runner.GetComponent<INetworkSceneManager>(),
             ObjectProvider = runner.GetComponent<INetworkObjectProvider>(),
             AuthValues = BuildAuth(),
@@ -483,44 +460,28 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private async Task EnsureLobbyAsync()
     {
-        if (_startingMatch)
+        NetworkRunner runner = EnsureRunner();
+        if (runner.IsRunning)
+        {
+            await ShutdownRunner(false);
+        }
+
+        if (_alive == false)
+        {
+            return;
+        }
+
+        if (runner.IsCloudReady)
         {
             return;
         }
 
         if (_lobbyTask != null && _lobbyTask.IsCompleted == false)
         {
-            try
-            {
-                await _lobbyTask;
-            }
-            catch (Exception exception)
-            {
-                Debug.LogException(exception);
-            }
-        }
-
-        if (_startingMatch || _alive == false)
-        {
+            await _lobbyTask;
             return;
         }
 
-        if (_runner != null && _runner.IsCloudReady && _runner.IsRunning == false)
-        {
-            return;
-        }
-
-        if (_runner != null)
-        {
-            await DestroyRunner();
-        }
-
-        if (_startingMatch || _alive == false)
-        {
-            return;
-        }
-
-        NetworkRunner runner = CreateFreshRunner();
         _lobbyTask = runner.JoinSessionLobby(SessionLobby.Shared, null, BuildAuth(), null, CancellationToken.None, true);
         StartGameResult result = await _lobbyTask;
         if (_alive == false)
@@ -559,56 +520,56 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
         HideLoading();
         ShowMenuPanel(_returnPanel != null ? _returnPanel : mainPanel);
         _isStartingSession = false;
-        _startingMatch = false;
         if (_returnPanel == joinPanel)
         {
             RefreshSessionLobby();
         }
     }
 
-    private async Task DestroyRunner()
+    private async Task ShutdownRunner(bool force)
     {
-        _lobbyTask = null;
-        NetworkRunner[] runners = FindObjectsByType<NetworkRunner>(FindObjectsSortMode.None);
-        _runner = null;
-        for (int i = 0; i < runners.Length; i++)
+        if (_runner == null)
         {
-            NetworkRunner runner = runners[i];
-            if (runner == null || runner.gameObject == gameObject)
-            {
-                continue;
-            }
+            return;
+        }
 
-            runner.RemoveCallbacks(this);
-            try
-            {
-                if (runner.IsRunning || runner.IsCloudReady)
-                {
-                    await runner.Shutdown(false, ShutdownReason.Ok, true);
-                }
-            }
-            catch (Exception exception)
-            {
-                Debug.LogException(exception);
-            }
-
-            if (runner != null)
-            {
-                Destroy(runner.gameObject);
-            }
+        try
+        {
+            await _runner.Shutdown(false, ShutdownReason.Ok, force);
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception);
         }
     }
 
-    private NetworkRunner CreateFreshRunner()
+    private NetworkRunner EnsureRunner()
     {
-        GameObject runnerObject = new GameObject("NetworkRunner");
-        NetworkRunner runner = runnerObject.AddComponent<NetworkRunner>();
-        runnerObject.AddComponent<NetworkSceneManagerDefault>();
-        runnerObject.AddComponent<NetworkObjectProviderDefault>();
-        DontDestroyOnLoad(runnerObject);
-        runner.AddCallbacks(this);
-        _runner = runner;
-        return runner;
+        if (_runner == null)
+        {
+            _runner = FindFirstObjectByType<NetworkRunner>();
+        }
+
+        if (_runner == null)
+        {
+            GameObject runnerObject = new GameObject("NetworkRunner");
+            _runner = runnerObject.AddComponent<NetworkRunner>();
+        }
+
+        if (_runner.GetComponent<NetworkSceneManagerDefault>() == null)
+        {
+            _runner.gameObject.AddComponent<NetworkSceneManagerDefault>();
+        }
+
+        if (_runner.GetComponent<NetworkObjectProviderDefault>() == null)
+        {
+            _runner.gameObject.AddComponent<NetworkObjectProviderDefault>();
+        }
+
+        DontDestroyOnLoad(_runner.gameObject);
+        _runner.RemoveCallbacks(this);
+        _runner.AddCallbacks(this);
+        return _runner;
     }
 
     private AuthenticationValues BuildAuth()
@@ -666,7 +627,49 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
         SetPanel(createPanel, panel == createPanel);
         SetPanel(joinPanel, panel == joinPanel);
         SetPanel(optionPanel, panel == optionPanel);
-        SetPanel(lobbyPanel, false);
+        SetPanel(lobbyPanel, panel == lobbyPanel);
+    }
+
+    private void EnterLobby()
+    {
+        _isStartingSession = false;
+        HideLoading();
+        ShowMenuPanel(lobbyPanel);
+        TrySpawnLobbyState();
+    }
+
+    private void TrySpawnLobbyState()
+    {
+        if (_lobbyStateSpawned || _runner == null || _runner.IsRunning == false)
+        {
+            return;
+        }
+
+        if (_runner.IsSharedModeMasterClient == false)
+        {
+            return;
+        }
+
+        if (lobbyStatePrefab == null)
+        {
+            Debug.LogError("NetworkMenuManager: assign Lobby State Prefab (a prefab with NetworkObject and LobbyManager).");
+            return;
+        }
+
+        NetworkObject spawned = _runner.Spawn(
+            lobbyStatePrefab,
+            Vector3.zero,
+            Quaternion.identity,
+            _runner.LocalPlayer,
+            null,
+            NetworkSpawnFlags.SharedModeStateAuthMasterClient);
+        if (spawned == null)
+        {
+            Debug.LogError("NetworkMenuManager: failed to spawn LobbyManager. Bake the prefab in the Fusion prefab table.");
+            return;
+        }
+
+        _lobbyStateSpawned = true;
     }
 
     private bool TrySavePlayerName()
@@ -900,9 +903,14 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private void WarnIfMissing()
     {
-        if (mainPanel == null || modePanel == null || createPanel == null || joinPanel == null || optionPanel == null || loadingPanel == null)
+        if (mainPanel == null || modePanel == null || createPanel == null || joinPanel == null || optionPanel == null || loadingPanel == null || lobbyPanel == null)
         {
             Debug.LogWarning("NetworkMenuManager: one or more panels were not found. Put this component on Canvas.");
+        }
+
+        if (lobbyStatePrefab == null)
+        {
+            Debug.LogWarning("NetworkMenuManager: assign Lobby State Prefab so the lobby can sync ready state and character picks.");
         }
 
         if (nameInput == null)
