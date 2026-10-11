@@ -4,24 +4,38 @@ using UnityEngine;
 [RequireComponent(typeof(NetworkTransform))]
 public class PlayerController : NetworkBehaviour
 {
+    private static readonly int IsWalkingHash = Animator.StringToHash("isWalking");
+
     [SerializeField] private float moveSpeed = 5f;
+    [SerializeField] private Animator animator;
 
     private PlayerStats _cachedStats;
+
+    public override void Spawned()
+    {
+        if (animator == null)
+        {
+            animator = GetComponentInChildren<Animator>(true);
+        }
+    }
 
     public override void FixedUpdateNetwork()
     {
         if (EnsureStats() && _cachedStats.IsDead)
         {
+            SetWalking(false);
             return;
         }
 
         if (HasInputAuthority && PlayerInputLock.IsTerminalOpen)
         {
+            SetWalking(false);
             return;
         }
 
         if (GetInput(out PlayerInput input) == false)
         {
+            SetWalking(false);
             return;
         }
 
@@ -51,6 +65,27 @@ public class PlayerController : NetworkBehaviour
         }
 
         transform.position += moveDirection * moveSpeed * Runner.DeltaTime;
+        SetWalking(moveDirection.sqrMagnitude > 0.001f);
+    }
+
+    private void SetWalking(bool isWalking)
+    {
+        if (HasStateAuthority == false)
+        {
+            return;
+        }
+
+        if (animator == null)
+        {
+            animator = GetComponentInChildren<Animator>(true);
+        }
+
+        if (animator == null)
+        {
+            return;
+        }
+
+        animator.SetBool(IsWalkingHash, isWalking);
     }
 
     private void FaceLookPoint(Vector3 lookPoint)
