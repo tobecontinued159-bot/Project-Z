@@ -71,28 +71,26 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 
     private async void Start()
     {
-        NetworkRunner externalRunner = FindExternalRunner();
-        if (externalRunner != null)
+        NetworkRunner menuRunner = FindMenuRunner();
+        if (menuRunner != null)
         {
-            AdoptExternalRunner(externalRunner);
+            AdoptMenuRunner(menuRunner);
             return;
         }
 
         _runner = GetComponent<NetworkRunner>();
+        if (_runner != null && _runner.IsRunning)
+        {
+            AdoptMenuRunner(_runner);
+            return;
+        }
+
         if (_runner == null)
         {
             _runner = gameObject.AddComponent<NetworkRunner>();
         }
 
-        if (_runner.IsRunning)
-        {
-            DisableFusionDebugIMGUI();
-            Subscribe(_runner);
-            return;
-        }
-
         DisableFusionDebugIMGUI();
-
         _runner.ProvideInput = true;
         _runner.AddCallbacks(this);
         DontDestroyOnLoad(gameObject);
@@ -136,38 +134,37 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
         DisableFusionDebugIMGUI();
     }
 
-    private NetworkRunner FindExternalRunner()
+    private NetworkRunner FindMenuRunner()
     {
-        NetworkRunner[] runners = FindObjectsByType<NetworkRunner>(FindObjectsSortMode.None);
-        NetworkRunner running = null;
-        NetworkRunner idle = null;
+        NetworkRunner[] runners = FindObjectsByType<NetworkRunner>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        NetworkRunner incoming = null;
         for (int i = 0; i < runners.Length; i++)
         {
             NetworkRunner runner = runners[i];
-            if (runner == null || runner.gameObject == gameObject)
+            if (runner == null)
             {
                 continue;
             }
 
             if (runner.IsRunning)
             {
-                running = runner;
+                return runner;
             }
-            else if (idle == null)
+
+            if (runner.gameObject != gameObject && incoming == null)
             {
-                idle = runner;
+                incoming = runner;
             }
         }
 
-        return running != null ? running : idle;
+        return incoming;
     }
 
-    private void AdoptExternalRunner(NetworkRunner runner)
+    private void AdoptMenuRunner(NetworkRunner runner)
     {
         _runner = runner;
         DisableFusionDebugIMGUI();
         DisableUnusedLocalRunner(runner);
-        ShutdownDuplicateRunners(runner);
         Subscribe(runner);
     }
 
@@ -180,22 +177,6 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
         }
 
         localRunner.enabled = false;
-    }
-
-    private static void ShutdownDuplicateRunners(NetworkRunner keptRunner)
-    {
-        NetworkRunner[] runners = FindObjectsByType<NetworkRunner>(FindObjectsSortMode.None);
-        for (int i = 0; i < runners.Length; i++)
-        {
-            NetworkRunner runner = runners[i];
-            if (runner == null || runner == keptRunner || runner.IsRunning == false)
-            {
-                continue;
-            }
-
-            Debug.LogWarning("NetworkPlayerSpawner: shutting down duplicate runner on " + runner.gameObject.name);
-            runner.Shutdown(false);
-        }
     }
 
     private void Subscribe(NetworkRunner runner)

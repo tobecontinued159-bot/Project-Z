@@ -29,7 +29,6 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
     public static readonly string[] MapLabels = { "SCHOOL", "HOSPITAL", "WAREHOUSE" };
 
     private const string UserIdPrefsKey = "FusionUserId";
-    private const string GameScenePath = "Assets/Scenes/GameScene.unity";
 
     [Header("Panels")]
     [SerializeField] private GameObject mainPanel;
@@ -54,7 +53,7 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
     [SerializeField] private LoadingSpinner loadingSpinner;
 
     [Header("Fusion")]
-    [Tooltip("Build index of Assets/Scenes/GameScene.unity. Used when the path lookup fails.")]
+    [Tooltip("Build Settings index passed to Runner.StartGame. The Inspector value is used as-is.")]
     [SerializeField] private int gameplaySceneBuildIndex = 1;
     [SerializeField] private float connectionTimeoutSeconds = 20f;
     [SerializeField] private float errorDisplaySeconds = 2.5f;
@@ -329,7 +328,7 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
 
             if (_gameSceneMissing)
             {
-                await PresentFailure("Add Assets/Scenes/GameScene.unity to Build Settings.");
+                await PresentFailure("Gameplay Scene Build Index " + gameplaySceneBuildIndex + " is not in Build Settings.");
                 return;
             }
 
@@ -370,41 +369,27 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
         if (TryCreateGameScene(out NetworkSceneInfo gameScene) == false)
         {
             _gameSceneMissing = true;
-            Debug.LogError("NetworkMenuManager: add " + GameScenePath + " to File > Build Settings. Fusion would otherwise start with no scene.");
+            Debug.LogError("NetworkMenuManager: Gameplay Scene Build Index " + gameplaySceneBuildIndex + " is outside File > Build Settings. Fusion would otherwise start with no scene.");
             return default;
         }
 
-        NetworkRunner runner = EnsureRunner();
-        bool retried = false;
-        while (_alive)
+        NetworkRunner runner = await CreateRunnerForGame();
+        runner.ProvideInput = true;
+        using (CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(connectionTimeoutSeconds)))
         {
-            runner.ProvideInput = true;
-            using (CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(connectionTimeoutSeconds)))
+            StartGameArgs args = BuildArgs(runner, kind, sessionName, cts.Token, gameScene);
+            Task<StartGameResult> startTask = runner.StartGame(args);
+            Task timeoutTask = Task.Delay(TimeSpan.FromSeconds(Mathf.Max(1f, connectionTimeoutSeconds) + 2f));
+            Task finished = await Task.WhenAny(startTask, timeoutTask);
+            if (finished != startTask)
             {
-                StartGameArgs args = BuildArgs(runner, kind, sessionName, cts.Token, gameScene);
-                Task<StartGameResult> startTask = runner.StartGame(args);
-                Task timeoutTask = Task.Delay(TimeSpan.FromSeconds(Mathf.Max(1f, connectionTimeoutSeconds) + 2f));
-                Task finished = await Task.WhenAny(startTask, timeoutTask);
-                if (finished != startTask)
-                {
-                    _timedOut = true;
-                    await ShutdownRunner(true);
-                    return default;
-                }
-
-                StartGameResult result = await startTask;
-                if (result.Ok || retried || result.ShutdownReason != ShutdownReason.AlreadyRunning)
-                {
-                    return result;
-                }
+                _timedOut = true;
+                await ShutdownRunner(true);
+                return default;
             }
 
-            retried = true;
-            await ShutdownRunner(false);
-            runner = EnsureRunner();
+            return await startTask;
         }
-
-        return default;
     }
 
     private StartGameArgs BuildArgs(NetworkRunner runner, MatchKind kind, string sessionName, CancellationToken token, NetworkSceneInfo gameScene)
@@ -556,6 +541,59 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
 
+    private async Task<NetworkRunner> CreateRunnerForGame()
+    {
+        if (_sessionListTask != null && _sessionListTask.IsCompleted == false)
+        {
+            try
+            {
+                await _sessionListTask;
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception);
+            }
+        }
+
+        NetworkRunner[] existing = FindObjectsByType<NetworkRunner>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        for (int i = 0; i < existing.Length; i++)
+        {
+            NetworkRunner oldRunner = existing[i];
+            if (oldRunner == null)
+            {
+                continue;
+            }
+
+            oldRunner.RemoveCallbacks(this);
+            if (oldRunner.IsRunning || oldRunner.IsStarting || oldRunner.IsCloudReady)
+            {
+                try
+                {
+                    await oldRunner.Shutdown(false, ShutdownReason.Ok, true);
+                }
+                catch (Exception exception)
+                {
+                    Debug.LogException(exception);
+                }
+            }
+
+            Destroy(oldRunner.gameObject);
+        }
+
+        _runner = null;
+        await Task.Yield();
+
+        GameObject runnerObject = new GameObject("NetworkRunner");
+        DontDestroyOnLoad(runnerObject);
+        NetworkRunner runner = runnerObject.AddComponent<NetworkRunner>();
+        runnerObject.AddComponent<NetworkSceneManagerDefault>();
+        runnerObject.AddComponent<NetworkObjectProviderDefault>();
+        runner.ProvideInput = true;
+        runner.AddCallbacks(this);
+        _runner = runner;
+        return runner;
+    }
+
     private NetworkRunner EnsureRunner()
     {
         if (_runner == null)
@@ -645,41 +683,13 @@ public class NetworkMenuManager : MonoBehaviour, INetworkRunnerCallbacks
     private bool TryCreateGameScene(out NetworkSceneInfo sceneInfo)
     {
         sceneInfo = default;
-        int index = SceneUtility.GetBuildIndexByScenePath(GameScenePath);
-        if (index < 0)
-        {
-            for (int i = 0; i < SceneManager.sceneCountInBuildSettings; i++)
-            {
-                string path = SceneUtility.GetScenePathByBuildIndex(i);
-                if (string.IsNullOrEmpty(path))
-                {
-                    continue;
-                }
-
-                if (path.EndsWith("/GameScene.unity") || path.EndsWith("\\GameScene.unity"))
-                {
-                    index = i;
-                    break;
-                }
-            }
-        }
-
-        if (index < 0 && gameplaySceneBuildIndex >= 0 && gameplaySceneBuildIndex < SceneManager.sceneCountInBuildSettings)
-        {
-            string configuredPath = SceneUtility.GetScenePathByBuildIndex(gameplaySceneBuildIndex);
-            if (string.IsNullOrEmpty(configuredPath) == false && configuredPath.EndsWith("GameScene.unity"))
-            {
-                index = gameplaySceneBuildIndex;
-            }
-        }
-
-        if (index < 0)
+        if (gameplaySceneBuildIndex < 0 || gameplaySceneBuildIndex >= SceneManager.sceneCountInBuildSettings)
         {
             return false;
         }
 
         sceneInfo = new NetworkSceneInfo();
-        sceneInfo.AddSceneRef(SceneRef.FromIndex(index), LoadSceneMode.Single, LocalPhysicsMode.None, true);
+        sceneInfo.AddSceneRef(SceneRef.FromIndex(gameplaySceneBuildIndex), LoadSceneMode.Single, LocalPhysicsMode.None, true);
         return sceneInfo.SceneCount > 0;
     }
 
