@@ -300,13 +300,16 @@ public class PlayerStats : NetworkBehaviour
             spawner = FindFirstObjectByType<NetworkPlayerSpawner>();
         }
 
-        if (spawner == null || spawner.spawnPoint == null)
+        if (spawner == null)
         {
             return;
         }
 
-        spawnPosition = spawner.spawnPoint.position;
-        spawnRotation = spawner.spawnPoint.rotation;
+        if (spawner.TryGetSpawnPose(Object.InputAuthority, out Vector3 pointPosition, out Quaternion pointRotation))
+        {
+            spawnPosition = pointPosition;
+            spawnRotation = pointRotation;
+        }
     }
 
     public void Heal(int amount)

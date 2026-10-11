@@ -9,7 +9,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
 {
     [SerializeField] private NetworkObject playerPrefab;
     [SerializeField] private string sessionName = "TestRoom";
-    public Transform spawnPoint;
+    public Transform[] SpawnPoints;
 
     public static NetworkPlayerSpawner Instance { get; private set; }
     public static readonly List<NetworkObject> AllPlayers = new List<NetworkObject>();
@@ -195,8 +195,11 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
-        Vector3 spawnPosition = spawnPoint != null ? spawnPoint.position : new Vector3(0f, 1f, 0f);
-        Quaternion spawnRotation = spawnPoint != null ? spawnPoint.rotation : Quaternion.identity;
+        if (TryGetSpawnPose(player, out Vector3 spawnPosition, out Quaternion spawnRotation) == false)
+        {
+            spawnPosition = new Vector3(0f, 1f, 0f);
+            spawnRotation = Quaternion.identity;
+        }
 
         NetworkObject networkPlayer = runner.Spawn(playerPrefab, spawnPosition, spawnRotation, player);
         if (networkPlayer == null)
@@ -208,7 +211,49 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
         _hasSpawnedLocalPlayer = true;
         _spawnedPlayers.Add(networkPlayer);
         RegisterPlayer(networkPlayer);
-        Debug.Log($"Spawned local player for {player}");
+        Debug.Log($"Spawned local player for {player} at {spawnPosition}");
+    }
+
+    public bool TryGetSpawnPose(PlayerRef player, out Vector3 position, out Quaternion rotation)
+    {
+        Transform point = GetSpawnPoint(player);
+        if (point == null)
+        {
+            position = default;
+            rotation = Quaternion.identity;
+            return false;
+        }
+
+        position = point.position;
+        rotation = point.rotation;
+        return true;
+    }
+
+    private Transform GetSpawnPoint(PlayerRef player)
+    {
+        if (SpawnPoints == null || SpawnPoints.Length == 0)
+        {
+            return null;
+        }
+
+        int slot = player.AsIndex;
+        if (slot < 0)
+        {
+            slot = _spawnedPlayers.Count;
+        }
+
+        int startIndex = slot % SpawnPoints.Length;
+        for (int attempt = 0; attempt < SpawnPoints.Length; attempt++)
+        {
+            int index = (startIndex + attempt) % SpawnPoints.Length;
+            Transform point = SpawnPoints[index];
+            if (point != null)
+            {
+                return point;
+            }
+        }
+
+        return null;
     }
 
     public static void RegisterPlayer(NetworkObject networkPlayer)
