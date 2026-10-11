@@ -61,7 +61,7 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
         NetworkRunner externalRunner = FindExternalRunner();
         if (externalRunner != null)
         {
-            await AdoptExternalRunner(externalRunner);
+            AdoptExternalRunner(externalRunner);
             return;
         }
 
@@ -75,7 +75,6 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
         {
             DisableFusionDebugIMGUI();
             Subscribe(_runner);
-            SpawnLocalPlayerIfNeeded(_runner, _runner.LocalPlayer);
             return;
         }
 
@@ -149,27 +148,13 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
         return running != null ? running : idle;
     }
 
-    private async System.Threading.Tasks.Task AdoptExternalRunner(NetworkRunner runner)
+    private void AdoptExternalRunner(NetworkRunner runner)
     {
         _runner = runner;
         DisableFusionDebugIMGUI();
         DisableUnusedLocalRunner(runner);
         ShutdownDuplicateRunners(runner);
         Subscribe(runner);
-
-        float timeout = 10f;
-        while (runner != null && runner.IsRunning == false && timeout > 0f)
-        {
-            timeout -= Time.unscaledDeltaTime;
-            await System.Threading.Tasks.Task.Yield();
-        }
-
-        if (runner == null || runner.IsRunning == false || runner.LocalPlayer.IsRealPlayer == false)
-        {
-            return;
-        }
-
-        SpawnLocalPlayerIfNeeded(runner, runner.LocalPlayer);
     }
 
     private void DisableUnusedLocalRunner(NetworkRunner keptRunner)
@@ -262,6 +247,11 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
         if (_hasSpawnedLocalPlayer || HasLocalPlayer(runner, player))
         {
             _hasSpawnedLocalPlayer = true;
+            return;
+        }
+
+        if (runner.IsRunning == false || runner.CanSpawn == false)
+        {
             return;
         }
 
@@ -518,7 +508,20 @@ public class NetworkPlayerSpawner : MonoBehaviour, INetworkRunnerCallbacks
     public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, ReadOnlySpan<byte> data) { }
     public void OnReliableDataProgress(NetworkRunner runner, PlayerRef player, ReliableKey key, float progress) { }
     public void OnSceneLoadStart(NetworkRunner runner) { }
-    public void OnSceneLoadDone(NetworkRunner runner) { }
+    public void OnSceneLoadDone(NetworkRunner runner)
+    {
+        if (_runner != null && runner != _runner)
+        {
+            return;
+        }
+
+        if (runner.IsRunning == false || runner.LocalPlayer.IsRealPlayer == false)
+        {
+            return;
+        }
+
+        OnPlayerJoined(runner, runner.LocalPlayer);
+    }
     public void OnSessionListUpdated(NetworkRunner runner, List<SessionInfo> sessionList) { }
     public void OnCustomAuthenticationResponse(NetworkRunner runner, Dictionary<string, object> data) { }
     public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken) { }
